@@ -1,8 +1,11 @@
 package com.elvarg.game.world.tool;
 
+import com.elvarg.game.world.GeneratedWorld;
 import com.elvarg.game.world.gen.Biome;
 import com.elvarg.game.world.gen.IslandGeography;
 import com.elvarg.game.world.gen.IslandLayout;
+import com.elvarg.game.world.gen.Locality;
+import com.elvarg.game.world.gen.WorldGenerator;
 
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -46,9 +49,14 @@ public final class IslandPreview {
         long seed = args.length > 0 ? Long.parseLong(args[0]) : 847293L;
         File out = new File(args.length > 1 ? args[1] : "island.png");
 
+        // Run the whole generator, not just geography, so the preview shows the
+        // world that would actually be installed - settlements, roads and dungeon
+        // mouths included - rather than the landscape they were placed on.
         long started = System.currentTimeMillis();
-        IslandGeography geography = new IslandGeography(seed);
-        geography.generate();
+        WorldGenerator.Result result = WorldGenerator.generate(seed,
+                java.nio.file.Paths.get("../data/definitions"));
+        IslandGeography geography = result.geography;
+        GeneratedWorld world = result.world;
         long elapsed = System.currentTimeMillis() - started;
 
         int size = IslandLayout.SIZE;
@@ -71,6 +79,20 @@ public final class IslandPreview {
                 image.setRGB(x, size - 1 - y, rgb);
             }
         }
+        // Markers, drawn over the terrain.
+        for (Locality locality : world.localities) {
+            if (locality.hasTown()) {
+                marker(image, locality.townX, locality.townY, 0xfff2d8, 4);
+            }
+        }
+        for (GeneratedWorld.Dungeon dungeon : world.dungeons) {
+            marker(image, dungeon.entranceX - IslandLayout.ORIGIN_X,
+                    dungeon.entranceY - IslandLayout.ORIGIN_Y,
+                    dungeon.hasBoss() ? 0xd83a3a : 0x9a5ad8, 3);
+        }
+        marker(image, world.spawnX - IslandLayout.ORIGIN_X,
+                world.spawnY - IslandLayout.ORIGIN_Y, 0x33ddff, 6);
+
         ImageIO.write(image, "png", out);
 
         int maxHeight = 0;
@@ -96,7 +118,25 @@ public final class IslandPreview {
                 .sorted((a, b) -> b.getValue() - a.getValue())
                 .forEach(e -> System.out.printf("  %-16s %7d  %5.1f%%%n",
                         e.getKey(), e.getValue(), 100.0 * e.getValue() / (size * size)));
+        System.out.println("\nmarkers: cyan = start village, cream = settlement,");
+        System.out.println("         red = dungeon with a boss, purple = boss-less dungeon");
         System.out.println("\nwrote " + out.getAbsolutePath());
+    }
+
+    /** Draws a filled square with a dark outline, so markers read on any biome. */
+    private static void marker(BufferedImage image, int x, int y, int rgb, int radius) {
+        int size = image.getWidth();
+        for (int dx = -radius - 1; dx <= radius + 1; dx++) {
+            for (int dy = -radius - 1; dy <= radius + 1; dy++) {
+                int px = x + dx;
+                int py = size - 1 - (y + dy);
+                if (px < 0 || py < 0 || px >= size || py >= size) {
+                    continue;
+                }
+                boolean edge = Math.abs(dx) > radius || Math.abs(dy) > radius;
+                image.setRGB(px, py, edge ? 0x101010 : rgb);
+            }
+        }
     }
 
     private static int shade(int rgb, double factor) {
