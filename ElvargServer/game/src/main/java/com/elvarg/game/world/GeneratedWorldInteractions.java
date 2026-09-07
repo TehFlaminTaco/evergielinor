@@ -152,7 +152,8 @@ public final class GeneratedWorldInteractions {
             player.getPacketSender().sendMessage("The way down is blocked.");
             return true;
         }
-        player.moveTo(new Location(location.getX(), location.getY(), next));
+        // Step off the ladder rather than into it.
+        player.moveTo(new Location(location.getX() - 1, location.getY(), next));
         player.getPacketSender().sendMessage("You descend to floor " + (next + 1)
                 + " of " + dungeon.floors + ".");
         return true;
@@ -168,7 +169,7 @@ public final class GeneratedWorldInteractions {
             player.getPacketSender().sendMessage("You climb back out into the daylight.");
             return true;
         }
-        player.moveTo(new Location(location.getX(), location.getY(), location.getZ() - 1));
+        player.moveTo(new Location(location.getX() - 1, location.getY(), location.getZ() - 1));
         player.getPacketSender().sendMessage("You climb up to floor " + location.getZ() + ".");
         return true;
     }

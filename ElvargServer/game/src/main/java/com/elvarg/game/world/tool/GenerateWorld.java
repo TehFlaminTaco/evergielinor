@@ -147,9 +147,9 @@ public final class GenerateWorld {
             for (int regionId : regions) {
                 TerrainRegion terrain = result.terrain.get(regionId);
                 if (terrain == null) {
-                    // A reserved dungeon region with no dungeon in it: write solid
-                    // rock rather than leaving whatever used to be there.
-                    terrain = solidRock();
+                    // A reserved region with no dungeon in it. Written as open sea
+                    // rather than left as whatever used to occupy the map file.
+                    terrain = openSea();
                 }
                 byte[] terrainData = LandscapeCodec.encodeTerrain(terrain);
                 terrainBytes += terrainData.length;
@@ -179,12 +179,13 @@ public final class GenerateWorld {
         System.out.println("\nWORLD INSTALLED. Start the server to play it.");
     }
 
-    /** A region of impassable rock, used for reserved regions with nothing in them. */
-    private static TerrainRegion solidRock() {
+    /** A region of open sea, used for reserved regions with nothing in them. */
+    private static TerrainRegion openSea() {
         TerrainRegion region = new TerrainRegion();
         for (int x = 0; x < TerrainRegion.SIZE; x++) {
             for (int y = 0; y < TerrainRegion.SIZE; y++) {
-                region.setUnderlay(0, x, y, 56);
+                region.setUnderlay(0, x, y, com.elvarg.game.world.gen.Biome.OCEAN.underlay());
+                region.setOverlay(0, x, y, com.elvarg.game.world.gen.Biome.OVERLAY_WATER, 0, 0);
                 region.setHeight(0, x, y, 0);
                 region.addFlag(0, x, y, TerrainRegion.FLAG_BLOCKED);
             }

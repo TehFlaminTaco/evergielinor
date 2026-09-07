@@ -156,6 +156,37 @@ footprint is reserved. Objects in this cache are not all one tile - a bush is
 2x2, a cave entrance 4x2 - and placing them a tile apart made models intersect
 and render half-buried.
 
+## Layout
+
+Two region blocks, both checked before anything is written:
+
+| Block | Regions | Purpose |
+|---|---|---|
+| (18, 39) | 12x12 = 144 | The island, including its own ocean margin out to the block edge |
+| (22, 53) | 12x12 = 144 | Dungeon floors, at least three regions clear of the island |
+
+Dungeons are ordinary terrain in their own regions rather than upper planes above
+the island: the client draws every plane at or below the player's, so a dungeon
+stacked over the overworld would show the sea through its floor. Keeping them in
+a separate block also means the island is never looking at them.
+
+## Object vetting
+
+Everything the generator places is checked against its real object definition
+first. Two things this catches:
+
+**Footprints.** Objects are not all one tile - a bush is 2x2, a cave entrance
+4x2, an oak 3x3. Placing them a tile apart made models intersect and render
+half-buried.
+
+**Wrong ids.** `Mining.Rock` and `Woodcutting.Tree` list every id that should
+*trigger* the skill across several game revisions, and a good number of those are
+something else entirely in this cache: Willow includes 5553 "Cave", Runite
+includes a Gorilla Statue and a Danger sign, Gold includes doors and gates, Clay
+includes tree stumps. `./gradlew :game:auditResources` prints the full list; the
+generator filters them out and places only ids whose name matches what they are
+meant to be.
+
 ## Known limits
 
 - **TzTok-Jad cannot be placed.** Its only constructor is

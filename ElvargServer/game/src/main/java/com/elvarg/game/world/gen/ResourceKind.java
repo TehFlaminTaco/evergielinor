@@ -6,11 +6,21 @@ import java.util.Set;
 /**
  * The skillable resources the generator can place.
  *
- * Every object id here was taken from the enum the corresponding skill already
- * dispatches on - {@code Mining.Rock} and {@code Woodcutting.Tree} - rather than
- * from RuneScape knowledge. That matters: an object placed with an id the skill
- * does not recognise is scenery a player cannot use, and the difference is
- * invisible until someone clicks it.
+ * The object ids come from the enums the skills already dispatch on -
+ * {@code Mining.Rock} and {@code Woodcutting.Tree} - so anything placed here is
+ * something the skill will actually respond to.
+ *
+ * Those enums are <em>not</em> a safe source of models, though. They list every
+ * id that should trigger the skill across several game revisions, and in this
+ * cache a good number of them are something else entirely: Willow includes 5553
+ * "Cave", Runite includes a Gorilla Statue and a Danger sign, Gold includes
+ * doors and gates, Clay includes tree stumps. Placing those put cave mouths in
+ * the middle of forests.
+ *
+ * So {@link #renderableObjectIds()} filters each list against the real object
+ * definitions at generation time and keeps only the ids whose name matches what
+ * they are supposed to be. Run {@code ./gradlew :game:auditResources} to see the
+ * full list and what was rejected.
  *
  * @author EverGielinor world generator
  */
@@ -83,9 +93,55 @@ public enum ResourceKind {
         return biomes.contains(biome);
     }
 
-    /** Picks one of the interchangeable object variants for visual variety. */
+    /** Ids that survived the definition check, resolved once per run. */
+    private int[] renderable;
+
+    /**
+     * Picks one of the interchangeable variants that is actually this resource in
+     * this cache, or -1 when none of the listed ids is.
+     */
     public int objectId(int variant) {
-        return objectIds[Math.floorMod(variant, objectIds.length)];
+        int[] usable = renderableObjectIds();
+        if (usable.length == 0) {
+            return -1;
+        }
+        return usable[Math.floorMod(variant, usable.length)];
+    }
+
+    /**
+     * The listed ids, filtered down to those whose object definition exists and
+     * whose name matches this resource's category.
+     */
+    public int[] renderableObjectIds() {
+        if (renderable == null) {
+            java.util.List<Integer> kept = new java.util.ArrayList<>();
+            for (int id : objectIds) {
+                if (ObjectVetting.isPlaceable(id) && namePlausible(ObjectVetting.nameOf(id))) {
+                    kept.add(id);
+                }
+            }
+            renderable = kept.stream().mapToInt(Integer::intValue).toArray();
+        }
+        return renderable;
+    }
+
+    /** Whether an object's name is consistent with being this kind of resource. */
+    private boolean namePlausible(String name) {
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
+        if (category == Category.TREE) {
+            return lower.contains("tree") || lower.contains("evergreen") || lower.contains("oak")
+                    || lower.contains("willow") || lower.contains("yew") || lower.contains("maple")
+                    || lower.contains("magic") || lower.contains("teak") || lower.contains("mahogany")
+                    || lower.contains("achey") || lower.contains("dramen") || lower.contains("pine");
+        }
+        // Mining nodes in this cache are almost all simply called "Rocks".
+        return lower.contains("rock") || lower.contains("ore") || lower.contains("vein")
+                || lower.contains("clay") || lower.contains("coal");
+    }
+
+    /** Whether anything in this resource's list is usable at all. */
+    public boolean isUsable() {
+        return renderableObjectIds().length > 0;
     }
 
     public int[] objectIds() {

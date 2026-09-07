@@ -23,8 +23,16 @@ public final class IslandLayout {
     /** The reserved block is square, in regions. */
     public static final int BLOCK_REGIONS = 12;
 
-    /** The overworld island occupies the south-west corner of the block. */
-    public static final int ISLAND_REGIONS = 10;
+    /**
+     * The island fills its whole block.
+     *
+     * It used to occupy only the south-west 10x10, with the remaining 44 regions
+     * reserved for dungeons and filled with near-black rock. Those regions sit
+     * directly against the island, so from the shore a player was looking at a
+     * wall of black terrain. The island now generates its own ocean margin all
+     * the way to the block edge, and dungeons live in a separate block.
+     */
+    public static final int ISLAND_REGIONS = BLOCK_REGIONS;
     /** Island side length in tiles. */
     public static final int SIZE = ISLAND_REGIONS * 64;
 
@@ -47,23 +55,25 @@ public final class IslandLayout {
     }
 
     /**
-     * Region ids reserved for underground content. These are the parts of the
-     * block the island does not cover: a two-region eastern column and a
-     * two-region northern strip.
+     * South-west corner of the block reserved for dungeons, in region
+     * coordinates. It is a separate block at least three regions clear of the
+     * island so neither is ever visible from the other, and like the island block
+     * none of its map files is shared with any region outside it.
      *
-     * Dungeons are built as ordinary terrain in their own regions rather than on
-     * upper planes above the island, because the client draws every plane at or
-     * below the player's, and a dungeon on plane 1 would show the overworld
-     * through its floor.
+     * Dungeons are ordinary terrain in their own regions rather than upper planes
+     * above the island: the client draws every plane at or below the player's, so
+     * a dungeon stacked over the overworld would show the sea through its floor.
      */
+    public static final int DUNGEON_BLOCK_REGION_X = 22;
+    public static final int DUNGEON_BLOCK_REGION_Y = 53;
+    public static final int DUNGEON_BLOCK_REGIONS = 12;
+
+    /** Region ids reserved for underground content. */
     public static java.util.List<Integer> dungeonRegions() {
         java.util.List<Integer> ids = new java.util.ArrayList<>();
-        for (int rx = 0; rx < BLOCK_REGIONS; rx++) {
-            for (int ry = 0; ry < BLOCK_REGIONS; ry++) {
-                if (rx < ISLAND_REGIONS && ry < ISLAND_REGIONS) {
-                    continue;
-                }
-                ids.add(regionId(BLOCK_REGION_X + rx, BLOCK_REGION_Y + ry));
+        for (int rx = 0; rx < DUNGEON_BLOCK_REGIONS; rx++) {
+            for (int ry = 0; ry < DUNGEON_BLOCK_REGIONS; ry++) {
+                ids.add(regionId(DUNGEON_BLOCK_REGION_X + rx, DUNGEON_BLOCK_REGION_Y + ry));
             }
         }
         return ids;

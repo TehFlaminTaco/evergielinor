@@ -43,8 +43,19 @@ import java.util.zip.GZIPOutputStream;
 public final class ExtractPrefabs {
 
     private static final int MIN_SIDE = 4;
-    private static final int MAX_SIDE = 13;
+    /**
+     * Upper bound on a prefab's side. Generous, because a terrace shares walls
+     * and comes out as one component - and a row of houses is a perfectly good
+     * thing to stamp into a town.
+     */
+    private static final int MAX_SIDE = 20;
     private static final int MIN_OBJECTS = 8;
+    /**
+     * How much of a footprint's perimeter must actually be walled. Below this the
+     * capture is a corner clipped out of something bigger, which stamps into a
+     * village as a house with two walls and no back.
+     */
+    private static final double MIN_WALL_COVERAGE = 0.55;
 
     public static void main(String[] args) throws Exception {
         Path clipping = Paths.get("../data/clipping");
@@ -109,6 +120,7 @@ public final class ExtractPrefabs {
             }
         }
         System.out.println("  with a door       " + withDoor);
+        System.out.println("  (fragments and unwalled shells were rejected)");
         System.out.println("  with a facility   " + withFacility);
         System.out.println("  size range        "
                 + prefabs.get(0).width + "x" + prefabs.get(0).height + " to "
@@ -130,25 +142,65 @@ public final class ExtractPrefabs {
 
     private static List<BuildingPrefab> extract(int regionId, List<PlacedObject> objects,
                                                 TerrainRegion terrain) {
-        // Roof coverage, projected down to a single 64x64 mask.
-        boolean[][] roof = new boolean[64][64];
+        // Structure mask: walls and roofs together, across every plane, projected
+        // onto one 64x64 grid.
+        //
+        // Roofs alone were used at first and produced fragments - a roof covers
+        // only the storey below it, so a building with a partial upper floor was
+        // captured as a corner of itself, walls and all missing. Walls describe
+        // the real footprint.
+        boolean[][] structure = new boolean[64][64];
         for (PlacedObject object : objects) {
-            if (object.type >= 12 && object.type <= 21) {
-                roof[object.localX][object.localY] = true;
+            if (isWall(object.type) || isRoof(object.type)) {
+                structure[object.localX][object.localY] = true;
             }
         }
+        // No dilation: walls of one building are already contiguous, and dilating
+        // welded whole terraces into single blobs larger than any usable prefab.
+        // Terraced neighbours that genuinely share a wall still come out as one
+        // component, which is fine - a row of houses is a legitimate prefab.
+        boolean[][] mask = structure;
 
         List<BuildingPrefab> out = new ArrayList<>();
         boolean[][] seen = new boolean[64][64];
         for (int x = 0; x < 64; x++) {
             for (int y = 0; y < 64; y++) {
-                if (!roof[x][y] || seen[x][y]) {
+                if (!mask[x][y] || seen[x][y]) {
                     continue;
                 }
-                int[] bounds = floodBounds(roof, seen, x, y);
+                int[] bounds = floodBounds(mask, seen, x, y);
                 BuildingPrefab prefab = capture(regionId, objects, terrain, bounds);
                 if (prefab != null) {
                     out.add(prefab);
+                }
+            }
+        }
+        return out;
+    }
+
+    private static boolean isWall(int type) {
+        return type <= 3 || type == 9;
+    }
+
+    private static boolean isRoof(int type) {
+        return type >= 12 && type <= 21;
+    }
+
+    private static boolean[][] dilate(boolean[][] mask) {
+        boolean[][] out = new boolean[64][64];
+        for (int x = 0; x < 64; x++) {
+            for (int y = 0; y < 64; y++) {
+                if (!mask[x][y]) {
+                    continue;
+                }
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        int nx = x + dx;
+                        int ny = y + dy;
+                        if (nx >= 0 && ny >= 0 && nx < 64 && ny < 64) {
+                            out[nx][ny] = true;
+                        }
+                    }
                 }
             }
         }
@@ -236,6 +288,14 @@ public final class ExtractPrefabs {
         }
         // A building nobody can walk into is scenery, not architecture.
         if (!prefab.hasDoor()) {
+            return null;
+        }
+        // Reject fragments. A real building is walled most of the way round its
+        // perimeter; a corner clipped out of a terrace is not, and stamping one
+        // into a village produced houses with two walls and no back.
+        long wallCount = prefab.objects.stream().filter(o -> isWall(o.type)).count();
+        int perimeter = 2 * (width + height);
+        if (wallCount < perimeter * MIN_WALL_COVERAGE) {
             return null;
         }
 

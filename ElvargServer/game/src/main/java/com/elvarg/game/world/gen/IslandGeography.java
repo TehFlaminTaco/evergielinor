@@ -32,6 +32,12 @@ public final class IslandGeography {
      * feet of undulation - enough to stop flat ground looking poured.
      */
     private static final int LOCAL_RELIEF = 7;
+    /**
+     * Height difference between neighbouring tiles, in height bytes, at which the
+     * ground becomes a cliff face rather than a slope. One byte is 8 world units
+     * against a 128-unit tile, so this is a touch over a 45 degree grade.
+     */
+    private static final int CLIFF_STEP = 6;
 
     public final int size = IslandLayout.SIZE;
     public final double[][] elevation = new double[size][size];
@@ -42,6 +48,12 @@ public final class IslandGeography {
     public final int[][] distanceFromSea = new int[size][size];
     /** Whether a land tile is reachable on foot from the start beach. */
     public final boolean[][] reachable = new boolean[size][size];
+    /**
+     * Ground too steep to walk. Marked where the slope between neighbouring tiles
+     * exceeds what a person could climb, which turns the mountain edges into real
+     * cliff faces instead of hillsides a player strolls up.
+     */
+    public final boolean[][] cliff = new boolean[size][size];
 
     public int landTiles;
     public int reachableLandTiles;
@@ -60,6 +72,7 @@ public final class IslandGeography {
         normaliseMoisture();
         buildBiomes();
         buildHeights();
+        markCliffs();
         buildDistanceFromSea();
     }
 
@@ -344,6 +357,14 @@ public final class IslandGeography {
                     out[x][y] = SEA_HEIGHT;
                     continue;
                 }
+                // Smoothing is for the lowlands. Applied uniformly it also planes
+                // the escarpments off the highlands, leaving mountains that read as
+                // gentle domes and nothing anywhere that a player has to walk
+                // around, so above the highland line the raw relief is kept.
+                if (elevation[x][y] > HIGHLAND) {
+                    out[x][y] = height[x][y];
+                    continue;
+                }
                 int sum = 0;
                 int count = 0;
                 for (int dx = -1; dx <= 1; dx++) {
@@ -363,6 +384,37 @@ public final class IslandGeography {
         }
         for (int x = 0; x < size; x++) {
             System.arraycopy(out[x], 0, height[x], 0, size);
+        }
+    }
+
+    /**
+     * Marks tiles whose slope makes them impassable.
+     *
+     * A height byte is 8 world units and a tile is 128 wide, so a step of this
+     * many bytes between neighbours is roughly a vertical face. Blocking those
+     * gives the highlands an edge a player has to walk around, and gives the
+     * island somewhere that reads as genuinely rugged.
+     */
+    private void markCliffs() {
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                if (biome[x][y].isWater()) {
+                    continue;
+                }
+                int here = height[x][y];
+                int steepest = 0;
+                for (int[] d : NEIGHBOURS) {
+                    int nx = x + d[0];
+                    int ny = y + d[1];
+                    if (nx < 0 || ny < 0 || nx >= size || ny >= size) {
+                        continue;
+                    }
+                    steepest = Math.max(steepest, Math.abs(height[nx][ny] - here));
+                }
+                if (steepest >= CLIFF_STEP) {
+                    cliff[x][y] = true;
+                }
+            }
         }
     }
 
@@ -426,7 +478,7 @@ public final class IslandGeography {
                 if (nx < 0 || ny < 0 || nx >= size || ny >= size || reachable[nx][ny]) {
                     continue;
                 }
-                if (biome[nx][ny].isWater()) {
+                if (biome[nx][ny].isWater() || cliff[nx][ny]) {
                     continue;
                 }
                 reachable[nx][ny] = true;
@@ -438,6 +490,11 @@ public final class IslandGeography {
 
     public boolean isLand(int x, int y) {
         return IslandLayout.inBounds(x, y) && !biome[x][y].isWater();
+    }
+
+    /** Whether a tile can be stood on: land, and not a cliff face. */
+    public boolean isWalkable(int x, int y) {
+        return isLand(x, y) && !cliff[x][y];
     }
 
     private static double distance(int x, int y, int px, int py) {

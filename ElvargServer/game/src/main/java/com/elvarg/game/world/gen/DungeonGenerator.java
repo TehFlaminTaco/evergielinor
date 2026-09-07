@@ -221,25 +221,29 @@ final class DungeonGenerator {
             int[] first = rooms.get(0);
             int[] last = rooms.get(rooms.size() - 1);
 
+            // The ladder stands beside the arrival tile, not on it. A ladder
+            // blocks the square it occupies, so putting the player there left
+            // them standing inside it with nowhere to step.
+            WorldGenerator.addObject(result.objects, baseX + first[0] + 1, baseY + first[1], plane,
+                    GeneratedDungeonObjects.LADDER_UP, PlacedObject.TYPE_SCENERY, 0);
             if (plane == 0) {
                 dungeon.arrivalX = baseX + first[0];
                 dungeon.arrivalY = baseY + first[1];
-                // A way back out, at the arrival point.
-                WorldGenerator.addObject(result.objects, dungeon.arrivalX, dungeon.arrivalY, plane,
-                        GeneratedDungeonObjects.LADDER_UP, PlacedObject.TYPE_SCENERY, 0);
-            } else {
-                WorldGenerator.addObject(result.objects, baseX + first[0], baseY + first[1], plane,
-                        GeneratedDungeonObjects.LADDER_UP, PlacedObject.TYPE_SCENERY, 0);
             }
 
             boolean deepest = plane == dungeon.floors - 1;
             if (!deepest) {
-                WorldGenerator.addObject(result.objects, baseX + last[0], baseY + last[1], plane,
+                WorldGenerator.addObject(result.objects, baseX + last[0] + 1, baseY + last[1], plane,
                         GeneratedDungeonObjects.LADDER_DOWN, PlacedObject.TYPE_SCENERY, 0);
             }
 
             populate(dungeon, result, monsters, rooms, plane, baseX, baseY, deepest, random);
         }
+
+        // Hand the carved region to the installer. Without this the rooms were
+        // built and then thrown away, and the region fell through to the filler -
+        // so every dungeon was a solid box with a ladder in it.
+        result.terrain.put(dungeon.regionId, region);
     }
 
     private static void fillSolid(TerrainRegion region, int plane) {

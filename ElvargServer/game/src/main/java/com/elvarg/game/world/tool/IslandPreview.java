@@ -79,7 +79,10 @@ public final class IslandPreview {
                 Biome biome = geography.biome[x][y];
                 counts.merge(biome, 1, Integer::sum);
                 int rgb = COLOURS.getOrDefault(biome, 0xff00ff);
-                if (!biome.isWater()) {
+                if (geography.cliff[x][y]) {
+                    // Cliff faces draw as bare rock so impassable ground is visible.
+                    rgb = 0x5a5148;
+                } else if (!biome.isWater()) {
                     // Hillshade from the local gradient so relief is visible.
                     int hx = geography.height[Math.min(size - 1, x + 1)][y] - geography.height[Math.max(0, x - 1)][y];
                     int hy = geography.height[x][Math.min(size - 1, y + 1)] - geography.height[x][Math.max(0, y - 1)];
@@ -147,6 +150,19 @@ public final class IslandPreview {
             rendered = crop;
         }
         ImageIO.write(rendered, "png", out);
+
+        int cliffs = 0;
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                if (geography.cliff[x][y]) {
+                    cliffs++;
+                }
+            }
+        }
+        System.out.printf("cliff tiles          %d (%.1f%% of land)%n",
+                cliffs, 100.0 * cliffs / Math.max(1, geography.landTiles));
+        System.out.printf("reachable land       %.1f%%%n",
+                100.0 * geography.reachableLandTiles / Math.max(1, geography.landTiles));
 
         int maxHeight = 0;
         for (int x = 0; x < size; x++) {

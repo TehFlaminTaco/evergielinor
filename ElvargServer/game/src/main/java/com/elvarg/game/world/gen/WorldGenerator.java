@@ -107,6 +107,7 @@ public final class WorldGenerator {
         buildTowns(start);
         buildRoads();
         placeResources();
+        fenceRoads();
         placeMonsters();
         DungeonGenerator.generate(seed, this, result, geography, monsters, noise);
         placeClutter();
@@ -526,6 +527,9 @@ public final class WorldGenerator {
      * never laid across water - if the walk cannot get there, no road is drawn and
      * validation reports the pair as unconnected.
      */
+    /** Tiles a road runs over, packed as x<<16|y, used to fence the verges. */
+    private final java.util.Set<Integer> roadTiles = new java.util.HashSet<>();
+
     private void buildRoads() {
         List<Locality> towns = new ArrayList<>();
         for (Locality locality : result.world.localities) {
@@ -564,7 +568,7 @@ public final class WorldGenerator {
                     }
                     int nx = x + dx;
                     int ny = y + dy;
-                    if (!IslandLayout.inBounds(nx, ny) || geography.biome[nx][ny].isWater()) {
+                    if (!IslandLayout.inBounds(nx, ny) || !geography.isWalkable(nx, ny)) {
                         continue;
                     }
                     double remaining = Math.hypot(toX - nx, toY - ny);
@@ -589,6 +593,7 @@ public final class WorldGenerator {
                 if (IslandLayout.inBounds(rx, ry) && !geography.biome[rx][ry].isWater()
                         && overlayOverride[rx][ry] == 0) {
                     overlayOverride[rx][ry] = Biome.OVERLAY_DIRT_ROAD;
+                    roadTiles.add((rx << 16) | ry);
                 }
             }
         }
@@ -735,7 +740,10 @@ public final class WorldGenerator {
     private List<ResourceKind> poolFor(Locality locality) {
         List<ResourceKind> pool = new ArrayList<>();
         for (ResourceKind kind : ResourceKind.values()) {
-            if (kind.allowedIn(locality.biome) && kind.suitsBand(locality.band, true)) {
+            // A resource whose every listed id turns out to be something else in
+            // this cache is dropped rather than placed as whatever it really is.
+            if (kind.isUsable() && kind.allowedIn(locality.biome)
+                    && kind.suitsBand(locality.band, true)) {
                 pool.add(kind);
             }
         }
@@ -810,6 +818,45 @@ public final class WorldGenerator {
             }
         }
     }
+
+    /**
+     * Puts fencing along the verges of country roads.
+     *
+     * Not continuous - a fenced lane every so often, broken where it meets other
+     * things. The point is to make a road look like a route somebody maintains
+     * rather than a stripe of different-coloured ground.
+     */
+    private void fenceRoads() {
+        Noise pick = noise.channel(41);
+        for (int packed : roadTiles) {
+            int x = packed >> 16;
+            int y = packed & 0xffff;
+            // Only fence a verge: a tile beside the road that is not itself road.
+            for (int[] d : new int[][]{{0, 1}, {0, -1}, {1, 0}, {-1, 0}}) {
+                int vx = x + d[0];
+                int vy = y + d[1];
+                if (!IslandLayout.inBounds(vx, vy) || roadTiles.contains((vx << 16) | vy)) {
+                    continue;
+                }
+                if (!geography.isWalkable(vx, vy) || occupied[vx][vy]) {
+                    continue;
+                }
+                if (pick.at(vx * 13 + 1, vy * 7 + 5) > 0.16) {
+                    continue;
+                }
+                int id = FENCE_OBJECTS[pick.intAt(vx, vy, FENCE_OBJECTS.length)];
+                if (placeObject(id, vx, vy, 0, PlacedObject.TYPE_SCENERY, pick.intAt(vx + 3, vy, 4))) {
+                    result.world.clutterObjectCount++;
+                }
+            }
+        }
+    }
+
+    /**
+     * Fence pieces, from the cache's own definitions. All 1x1 and solid, so a
+     * fenced verge is a real barrier rather than decoration a player walks over.
+     */
+    private static final int[] FENCE_OBJECTS = {17783, 17787, 17782, 1116, 1117};
 
     // ------------------------------------------------------------------
     // Monsters
@@ -935,7 +982,7 @@ public final class WorldGenerator {
                 if (!IslandLayout.inBounds(x, y) || occupied[x][y]) {
                     return false;
                 }
-                if (geography.biome[x][y].isWater() || !geography.reachable[x][y]) {
+                if (!geography.isWalkable(x, y) || !geography.reachable[x][y]) {
                     return false;
                 }
             }
@@ -985,7 +1032,7 @@ public final class WorldGenerator {
                             region.setOverlay(0, x, y, biome.overlay(), 0, 0);
                         }
                         region.setHeight(0, x, y, geography.height[localX][localY]);
-                        if (biome.isWater()) {
+                        if (biome.isWater() || geography.cliff[localX][localY]) {
                             region.addFlag(0, x, y, TerrainRegion.FLAG_BLOCKED);
                         }
                     }

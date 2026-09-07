@@ -158,3 +158,20 @@ tasks.register<JavaExec>("objectSearch") {
         )
     }
 }
+
+tasks.register<JavaExec>("auditResources") {
+    group = "evergielinor"
+    description = "Prints the real object definition behind every resource id the generator places."
+    mainClass.set("com.elvarg.game.world.tool.AuditResources")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+}
+
+tasks.register<JavaExec>("inspectDungeon") {
+    group = "evergielinor"
+    description = "Reports walkable area per dungeon floor: -Pid=<dungeonId> for one."
+    mainClass.set("com.elvarg.game.world.tool.InspectDungeon")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+    doFirst { args = listOfNotNull(project.findProperty("id")?.toString()) }
+}

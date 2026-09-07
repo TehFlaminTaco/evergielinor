@@ -162,7 +162,7 @@ final class TownBuilder {
             return placed;
         }
         int wanted = buildingCountFor(locality, random);
-        List<BuildingPrefab> candidates = prefabs.fitting(12, 12);
+        List<BuildingPrefab> candidates = prefabs.fitting(TOWN_HALF - 6, TOWN_HALF - 6);
         if (candidates.isEmpty()) {
             return placed;
         }
@@ -326,21 +326,52 @@ final class TownBuilder {
         };
         int slot = 0;
         for (TownService service : locality.services) {
-            if (!service.isObject() || slot >= slots.length) {
+            if (!service.isObject()) {
                 continue;
             }
-            int x = centreX + slots[slot][0];
-            int y = centreY + slots[slot][1];
-            slot++;
-            if (!IslandLayout.inBounds(x, y)) {
-                continue;
+            int id = service.objectId();
+            int rotation = random.nextInt(4);
+            int width = ObjectVetting.footprintX(id, rotation);
+            int height = ObjectVetting.footprintY(id, rotation);
+
+            // Walk the slots until one has room. Placing blind put a furnace
+            // inside a building wall, because a slot can already be taken by a
+            // house that reached the plaza edge.
+            boolean placed = false;
+            for (int attempt = 0; attempt < slots.length && !placed; attempt++) {
+                int[] offset = slots[(slot + attempt) % slots.length];
+                int x = centreX + offset[0];
+                int y = centreY + offset[1];
+                if (!fits(x, y, width, height, hasObject)) {
+                    continue;
+                }
+                WorldGenerator.addObject(result.objects, IslandLayout.worldX(x), IslandLayout.worldY(y), 0,
+                        id, PlacedObject.TYPE_SCENERY, rotation);
+                for (int fx = x; fx < x + width; fx++) {
+                    for (int fy = y; fy < y + height; fy++) {
+                        if (IslandLayout.inBounds(fx, fy)) {
+                            occupied[fx][fy] = true;
+                            hasObject[fx][fy] = true;
+                        }
+                    }
+                }
+                result.world.townObjectCount++;
+                slot = (slot + attempt + 1) % slots.length;
+                placed = true;
             }
-            WorldGenerator.addObject(result.objects, IslandLayout.worldX(x), IslandLayout.worldY(y), 0,
-                    service.objectId(), PlacedObject.TYPE_SCENERY, random.nextInt(4));
-            occupied[x][y] = true;
-            hasObject[x][y] = true;
-            result.world.townObjectCount++;
         }
+    }
+
+    /** Whether a footprint is inside the island and free of objects. */
+    private static boolean fits(int x, int y, int width, int height, boolean[][] hasObject) {
+        for (int fx = x; fx < x + width; fx++) {
+            for (int fy = y; fy < y + height; fy++) {
+                if (!IslandLayout.inBounds(fx, fy) || hasObject[fx][fy]) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static void placeTownsfolk(Locality locality, int centreX, int centreY,
