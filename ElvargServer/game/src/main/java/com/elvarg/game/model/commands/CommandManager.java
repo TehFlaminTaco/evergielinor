@@ -19,6 +19,13 @@ public class CommandManager {
     public static void loadCommands() {
         commands.clear();
 
+        /*
+         * EverGielinor: the commands that handed out progression directly are gone -
+         * ::item and ::runes (free items), ::master and ::reset (free levels), and
+         * ::bank / ::copybank (free bank access anywhere). PvP itself is untouched;
+         * what was removed is the tooling that made playing for anything optional.
+         */
+
         /**
          * Players Command
          */
@@ -68,7 +75,6 @@ public class CommandManager {
         put(new ReloadCommands(), "reloadcommands");
         put(new TeleToMe(), "teletome");
         put(new TeleTo(), "tele");
-        put(new ItemSpawn(), "item", "pickup");
         put(new Empty(), "empty");
         put(new UnlockPrayers(), "unlockprayers");
         put(new SaveAll(), "saveall");
@@ -76,10 +82,7 @@ public class CommandManager {
         /**
          * Owner Commands
          */
-        put(new CopyBank(), "copybank");
-        put(new Bank(), "bank");
         put(new Title(), "title");
-        put(new Runes(), "runes");
         put(new BarrageCommand(), "barrage");
         put(new Donator(), "donator");
         put(new GiveDonator(), "givedonator");
@@ -89,8 +92,6 @@ public class CommandManager {
          */
         put(new DialogueCommand(), "dialogue");
         put(new FloodCommand(), "flood");
-        put(new MasterCommand(), "master");
-        put(new ResetCommand(), "reset");
         put(new PNPCCommand(), "pnpc");
         put(new SpawnNPCCommand(), "npc");
         put(new SpawnPermanentNPCCommand(), "n");

@@ -31,6 +31,10 @@ public final class Locality {
     /** Town centre in island-local tiles, or -1 when the locality has no town. */
     public int townX = -1;
     public int townY = -1;
+    /** How many buildings the settlement actually got, for validation and inspection. */
+    public int buildings;
+    /** Shop this settlement runs, or -1 when it has no shopkeeper. */
+    public int shopId = -1;
 
     public boolean hasTown() {
         return townX >= 0;

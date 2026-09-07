@@ -192,7 +192,7 @@ public class PlayerDeathTask extends Task {
 					player.moveTo(com.elvarg.game.world.RespawnService.respawnFor(player));
 					if (loseItems) {
 						if (player.isOpenPresetsOnDeath()) {
-							Presetables.open(player);
+							// EverGielinor: death no longer re-equips the player from a preset.
 						}
 					}
 				}

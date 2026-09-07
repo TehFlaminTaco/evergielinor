@@ -61,6 +61,12 @@ public final class GenerateWorld {
             System.exit(2);
         }
 
+        // Object definitions must be loaded before generating: every object the
+        // generator places is vetted against its definition for footprint and
+        // validity, and without them every check fails silently and the world
+        // comes out empty of resources.
+        com.elvarg.game.definition.ObjectDefinition.init();
+
         System.out.println("EverGielinor world generator");
         System.out.println("  seed              " + seed);
         System.out.println("  generator version " + GeneratedWorld.GENERATOR_VERSION);
@@ -93,11 +99,14 @@ public final class GenerateWorld {
         System.out.println("generated in        " + generationMillis + " ms");
         System.out.println("localities          " + world.localities.size());
         System.out.println("settlements         "
-                + world.localities.stream().filter(Locality::hasTown).count());
+                + world.localities.stream().filter(Locality::hasTown).count()
+                + ", " + world.localities.stream().mapToInt(l -> l.buildings).sum() + " buildings");
         System.out.println("dungeons            " + world.dungeons.size()
                 + " (" + world.dungeons.stream().filter(GeneratedWorld.Dungeon::hasBoss).count() + " with a boss)");
         System.out.println("npc spawns          " + world.npcSpawns.size());
         System.out.println("resource objects    " + world.resourceObjectCount);
+        System.out.println("clutter objects     " + world.clutterObjectCount);
+        System.out.println("town objects        " + world.townObjectCount);
         System.out.println("objects total       "
                 + result.objects.values().stream().mapToInt(List::size).sum());
         System.out.println("spawn point         " + world.spawnX + ", " + world.spawnY);
@@ -119,6 +128,9 @@ public final class GenerateWorld {
             System.exit(1);
         }
 
+        // The spawn is chosen from tiles the generator knows are empty, but the
+        // server derives clipping independently - so confirm against the real
+        // region pipeline before writing anything, not after.
         printLocalityTable(world);
         printDungeonTable(world);
 
@@ -182,13 +194,16 @@ public final class GenerateWorld {
 
     private static void printLocalityTable(GeneratedWorld world) {
         System.out.println("\nlocalities:");
-        System.out.printf("  %-18s %-14s %-11s %-18s %s%n", "NAME", "BIOME", "BAND", "IDENTITY", "SERVICES");
+        System.out.printf("  %-18s %-14s %-11s %-18s %-3s %-14s %s%n",
+                "NAME", "BIOME", "BAND", "IDENTITY", "BLD", "SHOP", "SERVICES");
         world.localities.stream()
                 .sorted((a, b) -> a.band.ordinal() != b.band.ordinal()
                         ? a.band.ordinal() - b.band.ordinal()
                         : a.id - b.id)
-                .forEach(l -> System.out.printf("  %-18s %-14s %-11s %-18s %s%n",
+                .forEach(l -> System.out.printf("  %-18s %-14s %-11s %-18s %-3s %-14s %s%n",
                         l.name, l.biome, l.band, l.type,
+                        l.hasTown() ? String.valueOf(l.buildings) : "-",
+                        l.shopId >= 0 ? com.elvarg.game.world.gen.ShopAssignment.nameOf(l.shopId) : "-",
                         l.hasTown() ? l.services.toString() : "-"));
     }
 

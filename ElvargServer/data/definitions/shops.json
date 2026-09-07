@@ -3,6 +3,62 @@
     "id": 0,
     "name": "General Store",
     "originalStock": [
+      {
+        "id": 1931,
+        "amount": 100
+      },
+      {
+        "id": 1935,
+        "amount": 100
+      },
+      {
+        "id": 590,
+        "amount": 100
+      },
+      {
+        "id": 1755,
+        "amount": 100
+      },
+      {
+        "id": 2347,
+        "amount": 100
+      },
+      {
+        "id": 1733,
+        "amount": 100
+      },
+      {
+        "id": 1734,
+        "amount": 100
+      },
+      {
+        "id": 1925,
+        "amount": 100
+      },
+      {
+        "id": 946,
+        "amount": 100
+      },
+      {
+        "id": 1735,
+        "amount": 100
+      },
+      {
+        "id": 954,
+        "amount": 100
+      },
+      {
+        "id": 1351,
+        "amount": 100
+      },
+      {
+        "id": 1265,
+        "amount": 100
+      },
+      {
+        "id": 303,
+        "amount": 100
+      }
     ]
   },
   {
@@ -880,7 +936,7 @@
   },
   {
     "id": 9,
-    "name": "Tools Fuck Me",
+    "name": "Tool Shop",
     "originalStock": [
       {
         "id": 1540,

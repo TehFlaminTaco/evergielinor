@@ -26,6 +26,12 @@ public final class IslandGeography {
     /** Height byte at sea level, and the range mapped above it. */
     private static final int SEA_HEIGHT = 0;
     private static final int MAX_HEIGHT = 190;
+    /**
+     * Amplitude of the fine roughness laid over the broad landform, in height
+     * bytes. One byte is 8 world units and a tile is 128 wide, so this is a few
+     * feet of undulation - enough to stop flat ground looking poured.
+     */
+    private static final int LOCAL_RELIEF = 7;
 
     public final int size = IslandLayout.SIZE;
     public final double[][] elevation = new double[size][size];
@@ -300,6 +306,7 @@ public final class IslandGeography {
     // ------------------------------------------------------------------
 
     private void buildHeights() {
+        Noise detail = noise.channel(7);
         for (int x = 0; x < size; x++) {
             for (int y = 0; y < size; y++) {
                 if (biome[x][y].isWater()) {
@@ -312,7 +319,11 @@ public final class IslandGeography {
                 // Ease the low end so beaches and plains stay gently rolling and the
                 // dramatic relief is reserved for highland.
                 double eased = Math.pow(clamp01(t), 1.55);
-                int h = (int) Math.round(SEA_HEIGHT + eased * MAX_HEIGHT);
+                // Fine-grained roughness on top of the broad shape. Without it the
+                // lowlands map to a narrow band of the height byte and render as a
+                // flat plane - the hills read, but the ground between them does not.
+                double roughness = (detail.fbm(x, y, 14, 3) - 0.5) * 2.0;
+                int h = (int) Math.round(SEA_HEIGHT + eased * MAX_HEIGHT + roughness * LOCAL_RELIEF);
                 // 1 is reserved by the format; TerrainRegion also guards this.
                 height[x][y] = (h == 1) ? 2 : h;
             }
@@ -346,7 +357,7 @@ public final class IslandGeography {
                         count++;
                     }
                 }
-                int h = sum / count;
+                int h = Math.max(0, sum / count);
                 out[x][y] = (h == 1) ? 2 : h;
             }
         }

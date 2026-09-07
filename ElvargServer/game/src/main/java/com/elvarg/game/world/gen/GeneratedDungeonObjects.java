@@ -12,11 +12,14 @@ package com.elvarg.game.world.gen;
 public final class GeneratedDungeonObjects {
 
     /**
-     * Placed on the overworld; descends to floor one. Object 10 is a 1x1 "Ladder"
-     * whose first action is Climb-down, confirmed against the cache's own
-     * definitions rather than assumed.
+     * Placed on the overworld; descends to floor one.
+     *
+     * Object 2123 is a 3x2 "Cave Entrance" whose first action is Enter. A 1x1
+     * ladder was used at first and looked wrong standing in open country; a cave
+     * mouth reads as a way into a hillside. Being 3x2 it has to be placed with
+     * its footprint reserved - see ObjectVetting.
      */
-    public static final int ENTRANCE_OBJECT = 10;
+    public static final int ENTRANCE_OBJECT = 2123;
     /** Object 11, "Ladder", Climb-up. Ascends a floor, or leaves from floor one. */
     public static final int LADDER_UP = 11;
     /** Object 10, "Ladder", Climb-down. */

@@ -9,7 +9,6 @@ import static com.elvarg.game.entity.impl.playerbot.commands.CommandType.PUBLIC_
 
 public class LoadPreset implements BotCommand {
 
-    public static final int LOAD_PRESET_BUTTON_ID = 45064;
 
     @Override
     public String[] triggers() {
@@ -27,7 +26,9 @@ public class LoadPreset implements BotCommand {
         }
 
         playerBot.setCurrentPreset(preset);
-        Presetables.handleButton(playerBot, LOAD_PRESET_BUTTON_ID);
+        // Loads directly rather than through the preset interface, which no longer
+        // exists - bots were the only thing driving it.
+        Presetables.load(playerBot, preset);
 
         playerBot.updateLocalPlayers();
 

@@ -80,6 +80,25 @@ public final class VerifyInstall {
         Location spawn = new Location(world.spawnX, world.spawnY, world.spawnZ);
         boolean spawnBlocked = RegionManager.blocked(spawn, null);
         System.out.println("spawn walkable      " + !spawnBlocked);
+        if (spawnBlocked) {
+            // Say what is in the way, rather than only that something is.
+            System.out.println("  blocking the spawn tile:");
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    Location at = new Location(spawn.getX() + dx, spawn.getY() + dy, 0);
+                    java.util.ArrayList<com.elvarg.game.entity.impl.object.GameObject> here =
+                            MapObjects.mapObjects.get(MapObjects.getHash(at.getX(), at.getY(), 0));
+                    if (here == null) {
+                        continue;
+                    }
+                    for (com.elvarg.game.entity.impl.object.GameObject object : here) {
+                        System.out.println("    " + dx + "," + dy + "  id=" + object.getId()
+                                + " type=" + object.getType()
+                                + " name=" + com.elvarg.game.world.gen.ObjectVetting.nameOf(object.getId()));
+                    }
+                }
+            }
+        }
 
         int failures = 0;
         if (regionsLoaded != IslandLayout.ISLAND_REGIONS * IslandLayout.ISLAND_REGIONS) {

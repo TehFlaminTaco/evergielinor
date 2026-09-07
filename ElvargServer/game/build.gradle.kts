@@ -99,10 +99,15 @@ tasks.register<JavaExec>("previewIsland") {
     classpath = sourceSets["main"].runtimeClasspath
     workingDir = projectDir
     doFirst {
-        args = listOf(
+        val list = mutableListOf(
             project.findProperty("seed")?.toString() ?: "847293",
             project.findProperty("out")?.toString() ?: "island.png"
         )
+        // -Pcrop=<halfWidth> -Pzoom=<scale> renders a close-up of the start village,
+        // which is the only way to judge town layout rather than island shape.
+        project.findProperty("crop")?.let { list += listOf("--crop", it.toString()) }
+        project.findProperty("zoom")?.let { list += listOf("--zoom", it.toString()) }
+        args = list
     }
 }
 
@@ -130,4 +135,26 @@ tasks.register<JavaExec>("verifyDeterminism") {
     classpath = sourceSets["main"].runtimeClasspath
     workingDir = projectDir
     doFirst { args = listOf(project.findProperty("seed")?.toString() ?: "847293") }
+}
+
+tasks.register<JavaExec>("extractPrefabs") {
+    group = "evergielinor"
+    description = "Harvests building prefabs from the original game map into data/definitions."
+    mainClass.set("com.elvarg.game.world.tool.ExtractPrefabs")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+}
+
+tasks.register<JavaExec>("objectSearch") {
+    group = "evergielinor"
+    description = "Finds object ids by name: -Pq=<substring> [-Pn=<max>]"
+    mainClass.set("com.elvarg.game.world.tool.ObjectSearch")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+    doFirst {
+        args = listOf(
+            project.findProperty("q")?.toString() ?: "bank",
+            project.findProperty("n")?.toString() ?: "20"
+        )
+    }
 }

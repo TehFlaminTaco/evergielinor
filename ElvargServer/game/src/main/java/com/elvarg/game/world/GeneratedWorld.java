@@ -44,6 +44,7 @@ public final class GeneratedWorld {
     public int resourceObjectCount;
     public int sceneryObjectCount;
     public int townObjectCount;
+    public int clutterObjectCount;
 
     /** An NPC the world places. Mirrors NpcSpawnDefinition so the loader is trivial. */
     public static final class NpcSpawn {
@@ -58,6 +59,12 @@ public final class GeneratedWorld {
         public int localityId = -1;
         /** Dungeon this spawn belongs to, or -1 for overworld spawns. */
         public int dungeonId = -1;
+        /**
+         * Shop this NPC runs, or -1. Shopkeepers share one NPC id across the whole
+         * map, so a generated shop has to be bound to the individual spawn rather
+         * than to the id.
+         */
+        public int shopId = -1;
 
         public NpcSpawn() {
         }

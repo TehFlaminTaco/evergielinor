@@ -130,6 +130,32 @@ the single call at `SkillManager:654` that every skillable passes through, so th
 two progression models differ by exactly one condition — deliberately left as a
 switch rather than a decision.
 
+## Settlements
+
+Settlements are built from **278 building prefabs harvested out of the original
+game map** (`./gradlew :game:extractPrefabs`), not hand-authored from wall ids.
+Buildings are found by their roofs - roof objects sit on the plane above the
+walls and cover a footprint exactly - and everything inside is captured across
+every plane: walls, windows, doors, upper storeys, furniture and floor
+materials. Only buildings with a door are kept.
+
+A town levels its ground, paves a square, runs four streets out of it, and lines
+those streets with prefabs. Services (bank booth, furnace, anvil, range, altar)
+sit around the square, and a shopkeeper runs a shop chosen from the settlement's
+identity - a mining camp sells tools, a fishing village sells food.
+
+## Resources are places, not sprinkles
+
+Trees are placed as **groves**: one dominant species with roughly one in five
+being something else, denser at the centre. Ore is placed as **mines**: a patch
+of ground stripped back to bare earth with a dominant ore and a second mixed in,
+the way the Varrock mine reads from above.
+
+Everything placed is vetted against its object definition first, and its true
+footprint is reserved. Objects in this cache are not all one tile - a bush is
+2x2, a cave entrance 4x2 - and placing them a tile apart made models intersect
+and render half-buried.
+
 ## Known limits
 
 - **TzTok-Jad cannot be placed.** Its only constructor is
@@ -141,7 +167,26 @@ switch rather than a decision.
 - **`World.objects` is still a `LinkedList`.** Generated content goes into the
   map files rather than the dynamic object list, which sidesteps the problem for
   now, but player construction will hit it.
-- **General stores are placed as an NPC only**; the shop interface is not yet
-  bound to generated shopkeepers.
 - **No player construction yet** — beds are claimable where they exist, but
   cannot yet be built.
+- **Dungeon interiors are plain rooms and corridors** — no prefab equivalent of
+  the surface buildings yet.
+
+## PvP decommission
+
+PvP combat itself is untouched — wilderness, skulling and bounty hunter all
+still work. What was removed is the tooling that made playing for anything
+optional:
+
+| Removed | Why |
+|---|---|
+| Spawn tab (`SpawnItemPacketListener`, opcode 187) | **Had no rights check at all** — any client sending the opcode could conjure items into its inventory or bank |
+| `GameConstants.ALLOWED_SPAWNS` | Nothing reads it now |
+| `::item`, `::runes` | Free items |
+| `::master`, `::reset` | Free levels |
+| `::bank`, `::copybank` | Bank access from anywhere |
+| Preset interface, editor, and death-time re-gear | Re-equipped a player on demand and on every death |
+| New-player preset grant (`Player.java`) | **Every new player was handed a random PvP preset — maxed combat stats and a full kit — on first login** |
+
+`Presetables.load` survives as an internal API because the player-bot system
+uses it to equip its fighters; it is no longer reachable by a player.

@@ -678,9 +678,17 @@ public class Player extends Mobile {
 		getUpdateFlag().flag(Flag.APPEARANCE);
 
 		if (this.newPlayer) {
-			int presetIndex = Misc.randomInclusive(0, Presetables.GLOBAL_PRESETS.length-1);
-			Presetables.load(this, Presetables.GLOBAL_PRESETS[presetIndex]);
+			// Start on the generated island. The Player constructor defaults to
+			// GameConstants.DEFAULT_LOCATION, which is Elvarg's old home area and
+			// nowhere near the island - a new player was appearing off the map.
+			moveTo(com.elvarg.game.world.WorldLoader.defaultSpawn());
 		}
+
+		// EverGielinor: a new player used to be handed a random PvP preset here -
+		// maxed combat stats and a full kit, on first login. In a world built around
+		// earning those things that is not a starting gift, it is the end of the
+		// game before it begins. New players now start with nothing and the starting
+		// village provides the tools, shop and processing they need to begin.
 
 		if (!(this instanceof PlayerBot)) {
 			// Spawn player bots when a real player logs in

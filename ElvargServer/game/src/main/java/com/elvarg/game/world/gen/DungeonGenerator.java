@@ -52,8 +52,8 @@ final class DungeonGenerator {
     private DungeonGenerator() {
     }
 
-    static void generate(long seed, WorldGenerator.Result result, IslandGeography geography,
-                         MonsterCatalogue monsters, Noise noise) {
+    static void generate(long seed, WorldGenerator generator, WorldGenerator.Result result,
+                         IslandGeography geography, MonsterCatalogue monsters, Noise noise) {
         List<Integer> availableRegions = IslandLayout.dungeonRegions();
         Set<BossRoster> usedBosses = EnumSet.noneOf(BossRoster.class);
 
@@ -96,9 +96,9 @@ final class DungeonGenerator {
             assignBoss(dungeon, usedBosses, random);
             carve(dungeon, result, monsters, noise, random);
 
-            // The entrance itself: a staircase down, placed on the overworld.
-            WorldGenerator.addObject(result.objects, dungeon.entranceX, dungeon.entranceY, 0,
-                    GeneratedDungeonObjects.ENTRANCE_OBJECT, PlacedObject.TYPE_SCENERY, 0);
+            // The entrance itself, placed on the overworld with room for its
+            // footprint so it does not clip into whatever grew next to it.
+            generator.placeDungeonEntrance(dungeon, entrance[0], entrance[1]);
 
             result.world.dungeons.add(dungeon);
         }
@@ -246,7 +246,13 @@ final class DungeonGenerator {
         for (int x = 0; x < 64; x++) {
             for (int y = 0; y < 64; y++) {
                 region.setUnderlay(plane, x, y, ROCK_UNDERLAY);
-                region.setHeight(plane, x, y, 0);
+                // Only the ground floor states its height. Writing an explicit 0 on
+                // the upper planes would put every floor at the same elevation and
+                // leave them fighting for the same pixels; leaving it implicit makes
+                // the client stack each floor one storey above the last.
+                if (plane == 0) {
+                    region.setHeight(plane, x, y, 0);
+                }
                 region.addFlag(plane, x, y, TerrainRegion.FLAG_BLOCKED);
             }
         }

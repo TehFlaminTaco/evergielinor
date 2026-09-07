@@ -94,6 +94,20 @@ public final class WorldValidator {
         if (biome == Biome.WILDERNESS || biome == Biome.VOLCANIC) {
             report.fatal("spawn.safe", "spawn is inside a hostile biome (" + biome + ")");
         }
+        // Distance to the nearest settlement: a spawn a long walk from any
+        // services is technically valid and practically hostile to a new player.
+        int nearest = Integer.MAX_VALUE;
+        for (Locality locality : world.localities) {
+            if (!locality.hasTown()) {
+                continue;
+            }
+            nearest = Math.min(nearest, Math.abs(locality.townX - localX)
+                    + Math.abs(locality.townY - localY));
+        }
+        if (nearest > 60) {
+            report.warn("spawn.nearTown",
+                    "spawn is " + nearest + " tiles from the nearest settlement");
+        }
     }
 
     // --- localities ---------------------------------------------------------

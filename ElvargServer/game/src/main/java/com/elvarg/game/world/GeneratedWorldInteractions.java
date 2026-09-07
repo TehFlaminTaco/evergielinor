@@ -26,6 +26,12 @@ public final class GeneratedWorldInteractions {
     private static final Map<Long, GeneratedWorld.Dungeon> entrances = new HashMap<>();
     /** Dungeon by the region its floors occupy. */
     private static final Map<Integer, GeneratedWorld.Dungeon> byRegion = new HashMap<>();
+    /**
+     * Shop id by the tile its keeper stands on. Shopkeepers all share one NPC id,
+     * so the binding has to be positional - otherwise opening one generated shop
+     * would open the same shop everywhere on the island.
+     */
+    private static final Map<Long, Integer> shopkeepers = new HashMap<>();
 
     private GeneratedWorldInteractions() {
     }
@@ -34,10 +40,38 @@ public final class GeneratedWorldInteractions {
     public static void index(GeneratedWorld world) {
         entrances.clear();
         byRegion.clear();
+        shopkeepers.clear();
         for (GeneratedWorld.Dungeon dungeon : world.dungeons) {
             entrances.put(key(dungeon.entranceX, dungeon.entranceY), dungeon);
             byRegion.put(dungeon.regionId, dungeon);
         }
+        for (GeneratedWorld.NpcSpawn spawn : world.npcSpawns) {
+            if (spawn.shopId >= 0) {
+                shopkeepers.put(key(spawn.x, spawn.y), spawn.shopId);
+            }
+        }
+    }
+
+    /**
+     * Opens the shop belonging to a generated shopkeeper.
+     *
+     * Matched on the tile the NPC spawned at rather than the NPC itself, since
+     * shopkeepers wander a little and the spawn point is the stable identity.
+     *
+     * @return true when this NPC runs a generated shop
+     */
+    public static boolean openShop(com.elvarg.game.entity.impl.player.Player player,
+                                   com.elvarg.game.entity.impl.npc.NPC npc) {
+        if (npc == null) {
+            return false;
+        }
+        Location spawn = npc.getSpawnPosition() != null ? npc.getSpawnPosition() : npc.getLocation();
+        Integer shopId = shopkeepers.get(key(spawn.getX(), spawn.getY()));
+        if (shopId == null) {
+            return false;
+        }
+        com.elvarg.game.model.container.shop.ShopManager.open(player, shopId);
+        return true;
     }
 
     private static long key(int x, int y) {

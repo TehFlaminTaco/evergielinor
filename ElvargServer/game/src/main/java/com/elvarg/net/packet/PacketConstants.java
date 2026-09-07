@@ -109,7 +109,11 @@ public class PacketConstants {
 		PACKETS[MAGIC_ON_ITEM_OPCODE] = new MagicOnItemPacketListener();
 		PACKETS[MAGIC_ON_GROUND_ITEM_OPCODE] = new MagicOnItemPacketListener();
 		PACKETS[BANK_TAB_CREATION_OPCODE] = new BankTabCreationPacketListener();
-		PACKETS[SPAWN_TAB_ACTION_OPCODE] = new SpawnItemPacketListener();
+		// EverGielinor: the spawn tab is gone. SpawnItemPacketListener.spawn had no
+		// rights check at all, so any client that sent this opcode could conjure
+		// items from GameConstants.ALLOWED_SPAWNS straight into its inventory or
+		// bank - which makes every gathering and processing skill decorative.
+		// Leaving the opcode unbound means the packet is ignored.
 
 		PACKETS[FIRST_ITEM_CONTAINER_ACTION_OPCODE] = new ItemContainerActionPacketListener();
 		PACKETS[SECOND_ITEM_CONTAINER_ACTION_OPCODE] = new ItemContainerActionPacketListener();

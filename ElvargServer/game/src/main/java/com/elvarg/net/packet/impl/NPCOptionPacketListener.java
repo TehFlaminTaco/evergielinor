@@ -101,6 +101,13 @@ public class NPCOptionPacketListener extends NpcIdentifiers implements PacketExe
                 return;
             }
 
+			// A generated shopkeeper runs the shop bound to its spawn tile. Checked
+			// before the id switch below, which cannot tell one SHOP_KEEPER from
+			// another.
+			if (com.elvarg.game.world.GeneratedWorldInteractions.openShop(player, npc)) {
+				return;
+			}
+
 			if (QuestHandler.firstClickNpc(player, npc)) {
 				// NPC Click was handled by a quest
 				return;

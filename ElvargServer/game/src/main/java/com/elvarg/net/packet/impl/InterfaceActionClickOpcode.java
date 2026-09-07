@@ -1,7 +1,6 @@
 package com.elvarg.net.packet.impl;
 
 import com.elvarg.game.content.clan.ClanChatManager;
-import com.elvarg.game.content.presets.Presetables;
 import com.elvarg.game.entity.impl.player.Player;
 import com.elvarg.game.model.container.impl.Bank;
 import com.elvarg.game.model.teleportation.TeleportHandler;
@@ -28,9 +27,6 @@ public class InterfaceActionClickOpcode implements PacketExecutor {
 			return;
 		}
 		
-		if (Presetables.handleButton(player, interfaceId)) {
-			return;
-		}
 		
 		if (TeleportHandler.handleButton(player, interfaceId, action)) {
 			return;

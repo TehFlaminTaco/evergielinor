@@ -30,6 +30,8 @@ public final class WorldGenerator {
     private static final int LOCALITY_CELL = 80;
     /** A cell needs at least this much land to become a locality. */
     private static final int MIN_LOCALITY_LAND = 900;
+    /** Noise value above which ground clutter may appear at all. */
+    private static final double GATE_FLOOR = 0.48;
 
     /** Townsfolk ids, from NpcIdentifiers. */
     private static final int NPC_BANKER = 394;
@@ -53,8 +55,20 @@ public final class WorldGenerator {
 
     private IslandGeography geography;
     private Result result;
-    /** Tiles already claimed by an object, so nothing is placed twice. */
+    private PrefabLibrary prefabs = PrefabLibrary.load(java.nio.file.Paths.get("../data/definitions"));
+    /** Terrain overrides from buildings and paving, applied when terrain is painted. */
+    private final java.util.List<TerrainPatch> patches = new ArrayList<>();
+    /**
+     * Tiles claimed for placement. This is broader than "has an object on it" -
+     * a town reserves its whole built-up area to keep resources out of it.
+     */
     private boolean[][] occupied;
+    /**
+     * Tiles an object genuinely covers. Kept separate from {@link #occupied}
+     * because the spawn search needs to know what is really in the way, not what
+     * has merely been set aside.
+     */
+    private boolean[][] hasObject;
     /**
      * Overlay chosen by a settlement or road rather than by the biome. Terrain is
      * painted after content is placed, so these are applied last and win.
@@ -68,7 +82,9 @@ public final class WorldGenerator {
     }
 
     public static Result generate(long seed, Path definitionsDirectory) throws IOException {
-        return new WorldGenerator(seed, MonsterCatalogue.load(definitionsDirectory)).run();
+        WorldGenerator generator = new WorldGenerator(seed, MonsterCatalogue.load(definitionsDirectory));
+        generator.prefabs = PrefabLibrary.load(definitionsDirectory);
+        return generator.run();
     }
 
     public Result run() {
@@ -82,6 +98,7 @@ public final class WorldGenerator {
         result.geography = geography;
         occupied = new boolean[geography.size][geography.size];
         overlayOverride = new int[geography.size][geography.size];
+        hasObject = new boolean[geography.size][geography.size];
 
         int[] start = chooseStartingSite();
         geography.computeReachability(start[0], start[1]);
@@ -91,8 +108,10 @@ public final class WorldGenerator {
         buildRoads();
         placeResources();
         placeMonsters();
-        DungeonGenerator.generate(seed, result, geography, monsters, noise);
+        DungeonGenerator.generate(seed, this, result, geography, monsters, noise);
+        placeClutter();
 
+        finaliseSpawn(start);
         paintTerrain();
         return result;
     }
@@ -172,6 +191,78 @@ public final class WorldGenerator {
         result.world.spawnY = IslandLayout.worldY(bestY);
         result.world.spawnZ = 0;
         return new int[]{bestX, bestY};
+    }
+
+    /**
+     * Fixes the world's spawn point once everything has been placed.
+     *
+     * Choosing it up front kept going wrong: the tile is chosen before towns,
+     * resources and clutter exist, and any of them can end up on it or beside it
+     * - and a wall clips the tile next to it, not just its own. So the spawn is
+     * decided last, from tiles this generator knows are empty, preferring the
+     * starting village's square and searching outward from it otherwise.
+     */
+    private void finaliseSpawn(int[] preferred) {
+        int originX = preferred[0];
+        int originY = preferred[1];
+        for (Locality locality : result.world.localities) {
+            if (locality.type == LocalityType.STARTING_VILLAGE && locality.hasTown()) {
+                originX = locality.townX;
+                originY = locality.townY;
+                break;
+            }
+        }
+        int[] chosen = findClearTile(originX, originY);
+        if (chosen == null) {
+            // Nothing clear anywhere near: fall back to the original site rather
+            // than leaving the world without a spawn. Validation will flag it.
+            chosen = new int[]{originX, originY};
+        }
+        result.world.spawnX = IslandLayout.worldX(chosen[0]);
+        result.world.spawnY = IslandLayout.worldY(chosen[1]);
+        result.world.spawnZ = 0;
+    }
+
+    /**
+     * Nearest tile with nothing on it and nothing on its neighbours, searched in
+     * expanding rings so the answer is the closest one and does not depend on
+     * iteration order.
+     */
+    private int[] findClearTile(int originX, int originY) {
+        for (int radius = 0; radius < 48; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dy = -radius; dy <= radius; dy++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dy)) != radius) {
+                        continue;
+                    }
+                    int x = originX + dx;
+                    int y = originY + dy;
+                    if (!IslandLayout.inBounds(x, y)) {
+                        continue;
+                    }
+                    if (geography.biome[x][y].isWater() || !geography.reachable[x][y]) {
+                        continue;
+                    }
+                    if (hasAnythingWithin(x, y, 1)) {
+                        continue;
+                    }
+                    return new int[]{x, y};
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Whether any object sits on a tile or within {@code margin} of it. */
+    private boolean hasAnythingWithin(int centreX, int centreY, int margin) {
+        for (int x = centreX - margin; x <= centreX + margin; x++) {
+            for (int y = centreY - margin; y <= centreY + margin; y++) {
+                if (!IslandLayout.inBounds(x, y) || hasObject[x][y]) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------
@@ -373,7 +464,8 @@ public final class WorldGenerator {
             }
             locality.townX = site[0];
             locality.townY = site[1];
-            TownBuilder.build(locality, site[0], site[1], geography, result, occupied, noise, overlayOverride);
+            TownBuilder.build(locality, site[0], site[1], geography, result, occupied, hasObject,
+                    prefabs, patches, overlayOverride);
         }
     }
 
@@ -441,21 +533,17 @@ public final class WorldGenerator {
                 towns.add(locality);
             }
         }
+        // Each town links to its two nearest neighbours rather than one, which
+        // turns a chain of settlements into a road network a player can actually
+        // navigate by.
         for (Locality from : towns) {
-            Locality nearest = null;
-            int best = Integer.MAX_VALUE;
-            for (Locality to : towns) {
-                if (to == from || to.id < from.id) {
-                    continue;
-                }
-                int distance = Math.abs(to.townX - from.townX) + Math.abs(to.townY - from.townY);
-                if (distance < best) {
-                    best = distance;
-                    nearest = to;
-                }
-            }
-            if (nearest != null) {
-                traceRoad(from.townX, from.townY, nearest.townX, nearest.townY);
+            List<Locality> others = new ArrayList<>(towns);
+            others.remove(from);
+            others.sort((a, b) -> Integer.compare(
+                    Math.abs(a.townX - from.townX) + Math.abs(a.townY - from.townY),
+                    Math.abs(b.townX - from.townX) + Math.abs(b.townY - from.townY)));
+            for (int i = 0; i < Math.min(2, others.size()); i++) {
+                traceRoad(from.townX, from.townY, others.get(i).townX, others.get(i).townY);
             }
         }
     }
@@ -494,8 +582,14 @@ public final class WorldGenerator {
             }
             x = bestX;
             y = bestY;
-            if (overlayOverride[x][y] == 0) {
-                overlayOverride[x][y] = Biome.OVERLAY_DIRT_ROAD;
+            // Two tiles wide, so a road reads as a road from the ground.
+            for (int across = 0; across <= 1; across++) {
+                int rx = x + across;
+                int ry = y;
+                if (IslandLayout.inBounds(rx, ry) && !geography.biome[rx][ry].isWater()
+                        && overlayOverride[rx][ry] == 0) {
+                    overlayOverride[rx][ry] = Biome.OVERLAY_DIRT_ROAD;
+                }
             }
         }
     }
@@ -504,26 +598,134 @@ public final class WorldGenerator {
     // Resources
     // ------------------------------------------------------------------
 
+    /**
+     * Places resources as places rather than as sprinkles.
+     *
+     * Scattering a weighted draw over a locality gives an even fog of one tree
+     * every few tiles, which reads as noise. Real woodland is a stand of mostly
+     * one species with a few others in it, and an ore field is a worked patch of
+     * bare ground with rocks in it. So resources are placed as clusters: groves
+     * for trees, mines for ore, each with a dominant kind and a minority.
+     */
     private void placeResources() {
         for (Locality locality : result.world.localities) {
             Random random = localityRandom(locality, 0x8E5D);
-            // Denser near settlement, sparser in the wilds.
-            int budget = locality.type.isSettled() ? 150 : 110;
             List<ResourceKind> pool = poolFor(locality);
             if (pool.isEmpty()) {
                 continue;
             }
-            for (int i = 0; i < budget; i++) {
-                ResourceKind kind = weightedPick(pool, locality, random);
-                if (kind == null) {
+            List<ResourceKind> trees = pool.stream()
+                    .filter(k -> k.category() == ResourceKind.Category.TREE).toList();
+            List<ResourceKind> ores = pool.stream()
+                    .filter(k -> k.category() == ResourceKind.Category.ROCK).toList();
+
+            if (!trees.isEmpty()) {
+                int groves = switch (locality.biome) {
+                    case DENSE_FOREST -> 9;
+                    case FOREST -> 7;
+                    case SWAMP, GRASSLAND -> 4;
+                    default -> 3;
+                };
+                for (int i = 0; i < groves; i++) {
+                    placeGrove(locality, trees, random);
+                }
+            }
+            if (!ores.isEmpty()) {
+                int mines = locality.biome.supportsOre() ? 4 : 1;
+                for (int i = 0; i < mines; i++) {
+                    placeMine(locality, ores, random);
+                }
+            }
+        }
+    }
+
+    /**
+     * A stand of trees: one dominant species with a scattering of others, denser
+     * at the middle and thinning at the edges so it has an edge rather than a
+     * boundary.
+     */
+    private void placeGrove(Locality locality, List<ResourceKind> trees, Random random) {
+        int[] centre = openTileIn(locality, random);
+        if (centre == null) {
+            return;
+        }
+        ResourceKind dominant = weightedPick(trees, locality, random);
+        if (dominant == null) {
+            return;
+        }
+        int radius = 7 + random.nextInt(8);
+        // Enough attempts to fill the disc even though most are rejected for
+        // footprint overlap; a grove should read as woodland, not as an orchard.
+        int attempts = radius * radius * 3;
+        for (int i = 0; i < attempts; i++) {
+            double angle = random.nextDouble() * Math.PI * 2;
+            // Square-root bias fills the disc evenly instead of clumping at the pin.
+            double distance = Math.sqrt(random.nextDouble()) * radius;
+            int x = centre[0] + (int) Math.round(Math.cos(angle) * distance);
+            int y = centre[1] + (int) Math.round(Math.sin(angle) * distance);
+            if (!IslandLayout.inBounds(x, y) || !dominant.allowedIn(geography.biome[x][y])) {
+                continue;
+            }
+            // One tree in five is something else, so a grove is not a monoculture.
+            ResourceKind kind = random.nextInt(5) == 0
+                    ? weightedPick(trees, locality, random) : dominant;
+            if (kind == null || !kind.allowedIn(geography.biome[x][y])) {
+                continue;
+            }
+            if (placeObject(kind.objectId(random.nextInt(64)), x, y, 0,
+                    PlacedObject.TYPE_SCENERY, random.nextInt(4))) {
+                result.world.resourceObjectCount++;
+            }
+        }
+    }
+
+    /**
+     * A worked ore field: bare dug ground with rocks in it, the way the mines in
+     * the original game read from above.
+     */
+    private void placeMine(Locality locality, List<ResourceKind> ores, Random random) {
+        int[] centre = openTileIn(locality, random);
+        if (centre == null) {
+            return;
+        }
+        ResourceKind dominant = weightedPick(ores, locality, random);
+        if (dominant == null) {
+            return;
+        }
+        int radius = 4 + random.nextInt(4);
+
+        // Strip the ground inside the pit back to bare earth.
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = -radius; dy <= radius; dy++) {
+                int x = centre[0] + dx;
+                int y = centre[1] + dy;
+                if (!IslandLayout.inBounds(x, y) || dx * dx + dy * dy > radius * radius) {
                     continue;
                 }
-                int[] tile = randomTileIn(locality, random, kind);
-                if (tile == null) {
+                if (geography.biome[x][y].isWater() || overlayOverride[x][y] != 0) {
                     continue;
                 }
-                placeObject(kind.objectId(random.nextInt(64)), tile[0], tile[1], 0,
-                        PlacedObject.TYPE_SCENERY, random.nextInt(4));
+                overlayOverride[x][y] = Biome.OVERLAY_DIRT_ROAD;
+            }
+        }
+
+        int rocks = 6 + random.nextInt(8);
+        for (int i = 0; i < rocks * 4; i++) {
+            double angle = random.nextDouble() * Math.PI * 2;
+            double distance = Math.sqrt(random.nextDouble()) * radius;
+            int x = centre[0] + (int) Math.round(Math.cos(angle) * distance);
+            int y = centre[1] + (int) Math.round(Math.sin(angle) * distance);
+            if (!IslandLayout.inBounds(x, y)) {
+                continue;
+            }
+            // A quarter of the rocks are a second ore, as most real mines mix two.
+            ResourceKind kind = random.nextInt(4) == 0
+                    ? weightedPick(ores, locality, random) : dominant;
+            if (kind == null || !kind.allowedIn(geography.biome[x][y])) {
+                continue;
+            }
+            if (placeObject(kind.objectId(random.nextInt(64)), x, y, 0,
+                    PlacedObject.TYPE_SCENERY, random.nextInt(4))) {
                 result.world.resourceObjectCount++;
             }
         }
@@ -533,13 +735,9 @@ public final class WorldGenerator {
     private List<ResourceKind> poolFor(Locality locality) {
         List<ResourceKind> pool = new ArrayList<>();
         for (ResourceKind kind : ResourceKind.values()) {
-            if (!kind.allowedIn(locality.biome)) {
-                continue;
+            if (kind.allowedIn(locality.biome) && kind.suitsBand(locality.band, true)) {
+                pool.add(kind);
             }
-            if (!kind.suitsBand(locality.band, true)) {
-                continue;
-            }
-            pool.add(kind);
         }
         return pool;
     }
@@ -550,12 +748,13 @@ public final class WorldGenerator {
      * with the occasional 70" instead of a flat spread.
      */
     private ResourceKind weightedPick(List<ResourceKind> pool, Locality locality, Random random) {
+        if (pool.isEmpty()) {
+            return null;
+        }
         double total = 0;
         double[] weights = new double[pool.size()];
         for (int i = 0; i < pool.size(); i++) {
-            ResourceKind kind = pool.get(i);
-            boolean inBand = kind.suitsBand(locality.band, false);
-            weights[i] = inBand ? 1.0 : 0.12;
+            weights[i] = pool.get(i).suitsBand(locality.band, false) ? 1.0 : 0.12;
             total += weights[i];
         }
         double roll = random.nextDouble() * total;
@@ -565,26 +764,51 @@ public final class WorldGenerator {
                 return pool.get(i);
             }
         }
-        return pool.isEmpty() ? null : pool.get(pool.size() - 1);
+        return pool.get(pool.size() - 1);
     }
 
-    private int[] randomTileIn(Locality locality, Random random, ResourceKind kind) {
-        for (int attempt = 0; attempt < 24; attempt++) {
-            int x = locality.centreX + random.nextInt(locality.radius * 2 + 1) - locality.radius;
-            int y = locality.centreY + random.nextInt(locality.radius * 2 + 1) - locality.radius;
-            if (!IslandLayout.inBounds(x, y) || occupied[x][y]) {
-                continue;
+    /**
+     * Scatters grass, ferns and bushes over the island.
+     *
+     * Purely cosmetic, and the last thing placed so it fills the gaps between
+     * everything that matters rather than crowding it out.
+     */
+    private void placeClutter() {
+        Noise scatter = noise.channel(31);
+        for (int x = 0; x < geography.size; x++) {
+            for (int y = 0; y < geography.size; y++) {
+                if (occupied[x][y]) {
+                    continue;
+                }
+                Biome biome = geography.biome[x][y];
+                if (biome.isWater() || !geography.reachable[x][y]) {
+                    continue;
+                }
+                int[] palette = Decoration.forBiome(biome);
+                if (palette.length == 0) {
+                    continue;
+                }
+                // Clumped rather than uniform: noise gates where clutter may appear
+                // at all, so undergrowth gathers instead of speckling evenly.
+                double gate = scatter.fbm(x, y, 22, 3);
+                if (gate < GATE_FLOOR) {
+                    continue;
+                }
+                // Ramp to full density over a narrow band above the gate, so the
+                // middle of a clump is thick and its edge thins out. Scaling by the
+                // raw distance above the floor never reached full density at all,
+                // which left the island looking mown.
+                double ramp = Math.min(1.0, (gate - GATE_FLOOR) / 0.12);
+                double density = Decoration.densityFor(biome) * ramp;
+                if (scatter.at(x * 31 + 7, y * 17 + 3) > density) {
+                    continue;
+                }
+                int id = palette[scatter.intAt(x, y, palette.length)];
+                if (placeObject(id, x, y, 0, PlacedObject.TYPE_SCENERY, scatter.intAt(x + 5, y + 9, 4))) {
+                    result.world.clutterObjectCount++;
+                }
             }
-            Biome biome = geography.biome[x][y];
-            if (biome.isWater() || !geography.reachable[x][y]) {
-                continue;
-            }
-            if (!kind.allowedIn(biome)) {
-                continue;
-            }
-            return new int[]{x, y};
         }
-        return null;
     }
 
     // ------------------------------------------------------------------
@@ -654,13 +878,69 @@ public final class WorldGenerator {
         return new Random(seed * 31L + locality.id * 7919L + salt);
     }
 
-    void placeObject(int objectId, int localX, int localY, int plane, int type, int rotation) {
-        int worldX = IslandLayout.worldX(localX);
-        int worldY = IslandLayout.worldY(localY);
-        addObject(worldX, worldY, plane, objectId, type, rotation);
-        if (IslandLayout.inBounds(localX, localY)) {
-            occupied[localX][localY] = true;
+    /**
+     * Places an object and reserves the tiles it actually covers.
+     *
+     * Reserving only the origin tile lets a 2x2 bush and a 4x2 cave mouth grow
+     * into each other, which renders as models sunk halfway into one another.
+     */
+    boolean placeObject(int objectId, int localX, int localY, int plane, int type, int rotation) {
+        if (!ObjectVetting.isPlaceable(objectId)) {
+            return false;
         }
+        int width = ObjectVetting.footprintX(objectId, rotation);
+        int height = ObjectVetting.footprintY(objectId, rotation);
+        if (!isClear(localX, localY, width, height)) {
+            return false;
+        }
+        addObject(IslandLayout.worldX(localX), IslandLayout.worldY(localY), plane, objectId, type, rotation);
+        markObject(localX, localY, width, height);
+        return true;
+    }
+
+    /**
+     * Places a dungeon mouth, clearing whatever clutter is in the way.
+     *
+     * The entrance is not optional - a dungeon nobody can enter is worse than no
+     * dungeon - so this frees the tiles rather than giving up on the site, and
+     * records where it actually landed.
+     */
+    void placeDungeonEntrance(com.elvarg.game.world.GeneratedWorld.Dungeon dungeon,
+                              int localX, int localY) {
+        int id = GeneratedDungeonObjects.ENTRANCE_OBJECT;
+        int width = ObjectVetting.footprintX(id, 0);
+        int height = ObjectVetting.footprintY(id, 0);
+        markObject(localX, localY, width, height);
+        dungeon.entranceX = IslandLayout.worldX(localX);
+        dungeon.entranceY = IslandLayout.worldY(localY);
+        addObject(dungeon.entranceX, dungeon.entranceY, 0, id, PlacedObject.TYPE_SCENERY, 0);
+    }
+
+    /** Records that an object covers a footprint, for both grids. */
+    void markObject(int localX, int localY, int width, int height) {
+        for (int x = localX; x < localX + width; x++) {
+            for (int y = localY; y < localY + height; y++) {
+                if (IslandLayout.inBounds(x, y)) {
+                    occupied[x][y] = true;
+                    hasObject[x][y] = true;
+                }
+            }
+        }
+    }
+
+    /** Whether a footprint is free land the player can reach. */
+    private boolean isClear(int localX, int localY, int width, int height) {
+        for (int x = localX; x < localX + width; x++) {
+            for (int y = localY; y < localY + height; y++) {
+                if (!IslandLayout.inBounds(x, y) || occupied[x][y]) {
+                    return false;
+                }
+                if (geography.biome[x][y].isWater() || !geography.reachable[x][y]) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /** Adds an object at world coordinates, bucketed into its region's file. */
@@ -712,6 +992,40 @@ public final class WorldGenerator {
                 }
                 paintLava(region, regionX, regionY);
                 result.terrain.put(regionId, region);
+            }
+        }
+        applyPatches();
+    }
+
+    /**
+     * Applies building floors and paving over the biome pass.
+     *
+     * Buildings bring their own flooring - boards, flagstones, rugs - and their
+     * upper storeys, so a patch can target any plane. Height is left alone: the
+     * town levelling already set it, and a prefab's floor should sit on the
+     * ground it was placed on.
+     */
+    private void applyPatches() {
+        for (TerrainPatch patch : patches) {
+            int regionX = patch.localX / 64;
+            int regionY = patch.localY / 64;
+            int regionId = IslandLayout.regionId(
+                    IslandLayout.BLOCK_REGION_X + regionX, IslandLayout.BLOCK_REGION_Y + regionY);
+            TerrainRegion region = result.terrain.get(regionId);
+            if (region == null) {
+                continue;
+            }
+            int x = patch.localX & 63;
+            int y = patch.localY & 63;
+            if (patch.underlay != 0) {
+                region.setUnderlay(patch.plane, x, y, patch.underlay);
+            }
+            if (patch.overlay != 0) {
+                region.setOverlay(patch.plane, x, y, patch.overlay,
+                        patch.overlayShape, patch.overlayRotation);
+            }
+            if (patch.height >= 0) {
+                region.setHeight(patch.plane, x, y, patch.height);
             }
         }
     }
