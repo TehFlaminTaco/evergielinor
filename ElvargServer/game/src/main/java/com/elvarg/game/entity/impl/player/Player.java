@@ -837,6 +837,20 @@ public class Player extends Mobile {
 		return this;
 	}
 
+	private Location respawnLocation;
+
+	/**
+	 * Where this player respawns on death. Set by claiming a bed they built; null
+	 * until they do, in which case the world's default spawn is used instead.
+	 */
+	public Location getRespawnLocation() {
+		return respawnLocation;
+	}
+
+	public void setRespawnLocation(Location respawnLocation) {
+		this.respawnLocation = respawnLocation;
+	}
+
 	public PacketSender getPacketSender() {
 		return packetSender;
 	}

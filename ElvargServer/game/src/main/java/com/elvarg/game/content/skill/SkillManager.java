@@ -161,11 +161,14 @@ public class SkillManager {
 	public SkillManager addExperience(Skill skill, int experience, boolean multipliers) {
 		// Multipliers...
 		if (multipliers) {
+			// Read from the world configuration rather than a constant, so a host
+			// can retune progression without a rebuild.
+			com.elvarg.game.world.WorldConfig config = com.elvarg.game.world.WorldConfig.get();
 			if (skill == Skill.ATTACK || skill == Skill.DEFENCE || skill == Skill.STRENGTH || skill == Skill.HITPOINTS
 					|| skill == Skill.RANGED || skill == Skill.MAGIC) {
-				experience *= GameConstants.COMBAT_SKILLS_EXP_MULTIPLIER;
+				experience *= config.combatSkillsXpMultiplier;
 			} else {
-				experience *= GameConstants.REGULAR_SKILLS_EXP_MULTIPLIER;
+				experience *= config.regularSkillsXpMultiplier;
 			}
 		}
 
@@ -651,7 +654,11 @@ public class SkillManager {
 		player.getPacketSender().sendInterfaceRemoval();
 
 		// Check if we have the requirements to start this skill..
-		if (!skill.hasRequirements(player)) {
+		// With enforcement off, resources become the bottleneck instead of levels;
+		// this is the single chokepoint every skillable passes through, so the two
+		// progression models differ by exactly this one condition.
+		if (com.elvarg.game.world.WorldConfig.get().enforceSkillRequirements
+				&& !skill.hasRequirements(player)) {
 			return;
 		}
 

@@ -50,6 +50,13 @@ public class ObjectActionPacketListener extends ObjectIdentifiers implements Pac
 	 *            The packet containing the object's information.
 	 */
     private static void firstClick(Player player, GameObject object) {
+        // Generated content claims its own objects first. It only matches tiles the
+        // world record knows about, so reused ids - a plain ladder, a plain chest -
+        // still fall through to Elvarg's handling everywhere else on the map.
+        if (com.elvarg.game.world.GeneratedWorldInteractions.firstClick(player, object)) {
+            return;
+        }
+
         if(doorHandler(player, object)) {
 	        return;
 	    }

@@ -52,6 +52,11 @@ public class GameBuilder {
         // Make sure the background tasks loaded properly..
         if (!backgroundLoader.awaitCompletion())
             throw new IllegalStateException("Background load did not complete normally!");
+
+        // The generated world is loaded here rather than as a background task:
+        // BackgroundLoader may run its queue on several threads, and spawning NPCs
+        // before npc_defs.json has finished loading fails intermittently.
+        com.elvarg.game.world.WorldLoader.init();
     }
 
     /**

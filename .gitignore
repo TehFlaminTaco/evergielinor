@@ -1,2 +1,12 @@
 .DS_Store
 out/
+
+# EverGielinor generated world artefacts.
+# A world is reproducible from its seed (./gradlew :game:generateWorld -Pseed=N),
+# so the generated record and preview are not tracked. The map files the
+# generator installs are tracked game data and are deliberately left alone here:
+# run generateWorld to install a world, `git checkout` the data directories to
+# roll back to the stock map.
+ElvargServer/data/world.json
+ElvargServer/data/world_config.json
+ElvargServer/game/island.png

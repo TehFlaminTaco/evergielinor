@@ -88,7 +88,13 @@ public class GameConstants {
 	/**
 	 * Multiplies the experience gained.
 	 */
+	/**
+	 * Default combat XP multiplier. The live value is
+	 * {@code WorldConfig.get().combatSkillsXpMultiplier}; this remains as the
+	 * fallback used when no world configuration has been loaded.
+	 */
 	public static final double COMBAT_SKILLS_EXP_MULTIPLIER = 6;
+	/** Default non-combat XP multiplier; see {@link #COMBAT_SKILLS_EXP_MULTIPLIER}. */
 	public static final double REGULAR_SKILLS_EXP_MULTIPLIER = 18;
 
 	/**

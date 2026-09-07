@@ -47,3 +47,87 @@ tasks {
 
 }
 
+
+// ---------------------------------------------------------------------------
+// EverGielinor host tools
+//
+// World generation runs ahead of the server, not during boot, so a broken seed
+// is caught before players are let in. Each task runs from the module directory
+// because the server's data paths (GameConstants.CLIPPING_DIRECTORY) are
+// relative to it.
+//
+//   ./gradlew :game:generateWorld -Pseed=847293
+//   ./gradlew :game:generateWorld -Pseed=847293 -PdryRun=true
+//   ./gradlew :game:inspectWorld
+//   ./gradlew :game:previewIsland -Pseed=847293
+//   ./gradlew :game:verifyCodec
+// ---------------------------------------------------------------------------
+
+fun Project.toolArgsFor(vararg extra: String): List<String> {
+    val list = mutableListOf<String>()
+    if (project.hasProperty("seed")) {
+        list += listOf("--seed", project.property("seed").toString())
+    }
+    if (project.hasProperty("dryRun") && project.property("dryRun") == "true") {
+        list += "--dry-run"
+    }
+    list += extra
+    return list
+}
+
+tasks.register<JavaExec>("generateWorld") {
+    group = "evergielinor"
+    description = "Generates, validates and installs a procedural island from a seed."
+    mainClass.set("com.elvarg.game.world.tool.GenerateWorld")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+    doFirst { args = project.toolArgsFor() }
+}
+
+tasks.register<JavaExec>("inspectWorld") {
+    group = "evergielinor"
+    description = "Prints the installed world: seed, localities, dungeons and boss assignments."
+    mainClass.set("com.elvarg.game.world.tool.InspectWorld")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+}
+
+tasks.register<JavaExec>("previewIsland") {
+    group = "evergielinor"
+    description = "Renders a seed's geography to island.png without writing any game data."
+    mainClass.set("com.elvarg.game.world.tool.IslandPreview")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+    doFirst {
+        args = listOf(
+            project.findProperty("seed")?.toString() ?: "847293",
+            project.findProperty("out")?.toString() ?: "island.png"
+        )
+    }
+}
+
+tasks.register<JavaExec>("verifyCodec") {
+    group = "evergielinor"
+    description = "Round-trips every shipped map file through the landscape codec."
+    mainClass.set("com.elvarg.game.world.tool.CodecSelfTest")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+    args = listOf("../data/clipping")
+}
+
+tasks.register<JavaExec>("verifyInstall") {
+    group = "evergielinor"
+    description = "Loads the installed island through the server's own RegionManager and checks it."
+    mainClass.set("com.elvarg.game.world.tool.VerifyInstall")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+}
+
+tasks.register<JavaExec>("verifyDeterminism") {
+    group = "evergielinor"
+    description = "Generates one seed twice and proves the results are byte-identical."
+    mainClass.set("com.elvarg.game.world.tool.DeterminismTest")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+    doFirst { args = listOf(project.findProperty("seed")?.toString() ?: "847293") }
+}

@@ -37,12 +37,12 @@ allprojects {
 
     java {
         toolchain {
-            languageVersion.set(JavaLanguageVersion.of(17))
+            languageVersion.set(JavaLanguageVersion.of(21))
         }
     }
     kotlin{
         jvmToolchain{
-            languageVersion.set(JavaLanguageVersion.of(17))
+            languageVersion.set(JavaLanguageVersion.of(21))
         }
     }
 
@@ -55,8 +55,9 @@ allprojects {
     }
 
     tasks.compileJava {
-        sourceCompatibility = JavaVersion.VERSION_17.toString()
-        targetCompatibility = JavaVersion.VERSION_17.toString()
+        // Toolchain is 21 (see above); bytecode target stays 17 so it matches
+        // Kotlin's jvmTarget below. Kotlin 1.8.10 cannot target 21.
+        options.release.set(17)
     }
 
     tasks.withType<KotlinCompile>().all {

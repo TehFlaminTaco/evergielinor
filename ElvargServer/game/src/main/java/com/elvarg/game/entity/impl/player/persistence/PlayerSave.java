@@ -26,6 +26,11 @@ public class PlayerSave {
     private PlayerRights rights;
     private DonatorRights donatorRights;
     private Location position;
+    /**
+     * Where this player respawns, set by sleeping in a bed they built. Null means
+     * they have never claimed one, and death sends them to the world's default.
+     */
+    private Location respawnLocation;
     private MagicSpellbook spellBook;
     private FightType fightType;
     private boolean autoRetaliate;
@@ -113,6 +118,14 @@ public class PlayerSave {
 
     public void setPosition(Location position) {
         this.position = position;
+    }
+
+    public Location getRespawnLocation() {
+        return respawnLocation;
+    }
+
+    public void setRespawnLocation(Location respawnLocation) {
+        this.respawnLocation = respawnLocation;
     }
 
     public MagicSpellbook getSpellBook() {
@@ -525,6 +538,7 @@ public class PlayerSave {
         player.setRights(this.rights);
         player.setDonatorRights(this.donatorRights);
         player.setLocation(this.position);
+        player.setRespawnLocation(this.respawnLocation);
         player.setSpellbook(this.spellBook);
         player.setFightType(this.fightType);
         player.setAutoRetaliate(this.autoRetaliate);
@@ -611,6 +625,7 @@ public class PlayerSave {
         playerSave.rights = player.getRights();
         playerSave.donatorRights = player.getDonatorRights();
         playerSave.position = player.getLocation();
+        playerSave.respawnLocation = player.getRespawnLocation();
         playerSave.spellBook = player.getSpellbook();
         playerSave.fightType = player.getFightType();
         playerSave.autoRetaliate = player.autoRetaliate();

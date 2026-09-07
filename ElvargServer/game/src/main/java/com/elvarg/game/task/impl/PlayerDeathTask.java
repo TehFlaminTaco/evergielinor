@@ -189,7 +189,7 @@ public class PlayerDeathTask extends Task {
 				}
 
 				if (!handledDeath) {
-					player.moveTo(GameConstants.DEFAULT_LOCATION);
+					player.moveTo(com.elvarg.game.world.RespawnService.respawnFor(player));
 					if (loseItems) {
 						if (player.isOpenPresetsOnDeath()) {
 							Presetables.open(player);
@@ -237,7 +237,7 @@ public class PlayerDeathTask extends Task {
 			super.stop();
 			e.printStackTrace();
 			player.resetAttributes();
-			player.moveTo(GameConstants.DEFAULT_LOCATION);
+			player.moveTo(com.elvarg.game.world.RespawnService.respawnFor(player));
 		}
 	}
 }
