@@ -151,6 +151,22 @@ public final class IslandPreview {
         }
         ImageIO.write(rendered, "png", out);
 
+        // Confirm the ocean border: how close does land actually get to the edge
+        // of the region block? Anything under the client's ~52 tile draw distance
+        // would put the void beyond the block inside a player's view.
+        int closestLandToEdge = Integer.MAX_VALUE;
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                if (geography.biome[x][y].isWater()) {
+                    continue;
+                }
+                closestLandToEdge = Math.min(closestLandToEdge,
+                        Math.min(Math.min(x, y), Math.min(size - 1 - x, size - 1 - y)));
+            }
+        }
+        System.out.println("land to block edge   " + closestLandToEdge
+                + " tiles (client draws ~52)");
+
         int cliffs = 0;
         for (int x = 0; x < size; x++) {
             for (int y = 0; y < size; y++) {

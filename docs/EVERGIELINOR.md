@@ -162,13 +162,35 @@ Two region blocks, both checked before anything is written:
 
 | Block | Regions | Purpose |
 |---|---|---|
-| (18, 39) | 12x12 = 144 | The island, including its own ocean margin out to the block edge |
+| (18, 39) | 12x12 = 144 | The island, with a guaranteed 64-tile ocean border at the block edge |
 | (22, 53) | 12x12 = 144 | Dungeon floors, at least three regions clear of the island |
 
 Dungeons are ordinary terrain in their own regions rather than upper planes above
 the island: the client draws every plane at or below the player's, so a dungeon
 stacked over the overworld would show the sea through its floor. Keeping them in
 a separate block also means the island is never looking at them.
+
+### The ocean border
+
+31 of the 52 regions surrounding the island's block do not exist in `map_index`
+at all, and the client renders a region it cannot resolve as black void. The
+island's landmass is therefore held a full region (64 tiles) clear of the block
+edge, which is comfortably more than the client's ~52-tile draw distance, so the
+void is never inside anyone's view. `./gradlew :game:previewIsland` reports the
+actual closest-land-to-edge distance for a seed.
+
+### Relief
+
+Height is one unsigned byte rendered as `-value * 8` world units, so **255 is the
+ceiling the format allows** - about 2040 units, or sixteen tile-widths. The
+generator peaks at 245.
+
+The earlier flatness was not the ceiling but the distribution: an easing exponent
+of 1.55 squashed everything below the highlands into the bottom fifth of the byte
+range. It is now 1.08, which roughly doubles the relief of mid elevations, and
+smoothing stops above the highland line so escarpments survive. Ground steeper
+than about 45 degrees is impassable - 7.2% of land, with 92.1% still reachable on
+foot.
 
 ## Object vetting
 

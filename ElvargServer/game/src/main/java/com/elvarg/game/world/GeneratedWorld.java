@@ -24,8 +24,13 @@ public final class GeneratedWorld {
      * Bumped whenever a change to the generator would alter what a seed produces.
      * A saved world records the version it was made with, so an old world keeps
      * loading as itself instead of silently becoming a different place.
+     *
+     * v2: the island fills its whole region block with a guaranteed ocean border,
+     * dungeons moved to their own block, terrain relief roughly doubled, and
+     * resource object ids are filtered against their real definitions. Every seed
+     * produces a different world under v2 than it did under v1.
      */
-    public static final int GENERATOR_VERSION = 1;
+    public static final int GENERATOR_VERSION = 2;
 
     public long seed;
     public int generatorVersion = GENERATOR_VERSION;

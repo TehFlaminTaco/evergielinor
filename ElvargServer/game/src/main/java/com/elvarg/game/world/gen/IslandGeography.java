@@ -25,19 +25,30 @@ public final class IslandGeography {
 
     /** Height byte at sea level, and the range mapped above it. */
     private static final int SEA_HEIGHT = 0;
-    private static final int MAX_HEIGHT = 190;
+    /**
+     * Height is one unsigned byte and the client renders it as {@code -value * 8}
+     * world units, so 255 is the ceiling the format allows - about 2040 units, or
+     * sixteen tile-widths of elevation. This leaves a little headroom under that
+     * for the roughness term so peaks do not clip.
+     */
+    private static final int MAX_HEIGHT = 235;
     /**
      * Amplitude of the fine roughness laid over the broad landform, in height
      * bytes. One byte is 8 world units and a tile is 128 wide, so this is a few
      * feet of undulation - enough to stop flat ground looking poured.
      */
-    private static final int LOCAL_RELIEF = 7;
+    private static final int LOCAL_RELIEF = 12;
     /**
      * Height difference between neighbouring tiles, in height bytes, at which the
      * ground becomes a cliff face rather than a slope. One byte is 8 world units
      * against a 128-unit tile, so this is a touch over a 45 degree grade.
      */
-    private static final int CLIFF_STEP = 6;
+    private static final int CLIFF_STEP = 7;
+    /**
+     * Tiles of guaranteed open sea around the edge of the island's region block.
+     * One region wide, which is comfortably more than the client's draw distance.
+     */
+    private static final int OCEAN_BORDER = 64;
 
     public final int size = IslandLayout.SIZE;
     public final double[][] elevation = new double[size][size];
@@ -110,6 +121,16 @@ public final class IslandGeography {
                 // reads as concentric rings of biome around a central peak.
                 elevation[x][y] = clamp01(combined * Math.pow(masked, 0.42) * 1.16);
                 moisture[x][y] = wet.warpedFbm(x, y, 95, 4, 50);
+
+                // Hard ocean border. The client draws a 104x104 scene, so a player
+                // standing on the coast sees about 52 tiles; 31 of the 52 regions
+                // around this block do not exist in map_index and render as black
+                // void. Keeping land a full region clear of the block edge means
+                // that void is never inside anyone's view.
+                int edgeDistance = Math.min(Math.min(x, y), Math.min(size - 1 - x, size - 1 - y));
+                if (edgeDistance < OCEAN_BORDER) {
+                    elevation[x][y] = 0;
+                }
             }
         }
     }
@@ -329,14 +350,18 @@ public final class IslandGeography {
                 // Remap land elevation onto the byte range so that the shore starts
                 // just above sea level and peaks reach most of the way up.
                 double t = (elevation[x][y] - SEA_LEVEL) / (1.0 - SEA_LEVEL);
-                // Ease the low end so beaches and plains stay gently rolling and the
-                // dramatic relief is reserved for highland.
-                double eased = Math.pow(clamp01(t), 1.55);
+                // Very nearly linear. The old 1.55 exponent squashed everything
+                // below the highlands into the bottom fifth of the byte range, so
+                // most of the island was rendered within a few units of sea level
+                // and read as a painted plane. Mid elevations now get roughly
+                // twice the relief they had.
+                double eased = Math.pow(clamp01(t), 1.08);
                 // Fine-grained roughness on top of the broad shape. Without it the
                 // lowlands map to a narrow band of the height byte and render as a
                 // flat plane - the hills read, but the ground between them does not.
                 double roughness = (detail.fbm(x, y, 14, 3) - 0.5) * 2.0;
                 int h = (int) Math.round(SEA_HEIGHT + eased * MAX_HEIGHT + roughness * LOCAL_RELIEF);
+                h = Math.max(0, Math.min(255, h));
                 // 1 is reserved by the format; TerrainRegion also guards this.
                 height[x][y] = (h == 1) ? 2 : h;
             }
