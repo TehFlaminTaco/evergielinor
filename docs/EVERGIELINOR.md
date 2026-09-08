@@ -139,8 +139,16 @@ walls and cover a footprint exactly - and everything inside is captured across
 every plane: walls, windows, doors, upper storeys, furniture and floor
 materials. Only buildings with a door are kept.
 
-A town levels its ground, paves a square, runs four streets out of it, and lines
-those streets with prefabs. Services (bank booth, furnace, anvil, range, altar)
+A town paves a square, runs four streets out of it, and lines those streets with
+prefabs. It does **not** level its ground - doing so put every village on an
+obvious artificial plateau and undid the slope limiting. Only individual building
+footprints are levelled, and only where the terrain was already close to flat,
+so a settlement follows the hillside it sits on.
+
+Prefabs must be genuinely enclosed to be used at all: at least 80% of the
+footprint's border walled, a roof present, and a door. The roof requirement is
+what rejects cave and dungeon interiors, which are also walled rooms and were
+being stamped into villages as stone chambers full of stalagmites. Services (bank booth, furnace, anvil, range, altar)
 sit around the square, and a shopkeeper runs a shop chosen from the settlement's
 identity - a mining camp sells tools, a fishing village sells food.
 
@@ -178,6 +186,19 @@ island's landmass is therefore held a full region (64 tiles) clear of the block
 edge, which is comfortably more than the client's ~52-tile draw distance, so the
 void is never inside anyone's view. `./gradlew :game:previewIsland` reports the
 actual closest-land-to-edge distance for a seed.
+
+### Slope limiting
+
+The client lights terrain from its vertex normals, so a face steeper than about
+45 degrees (16 height bytes against a 128-unit tile) turns into a black wall -
+the ground is still there and objects still draw on it, but it is lit to nothing.
+Raw noise mapped onto the height byte produced faces of 59 bytes, close to
+vertical, which is what the black patches in play actually were.
+
+A talus-angle relaxation now caps the step between neighbouring tiles at 8 bytes,
+about 32 degrees. It only ever lowers a tile, so coastlines and valleys keep
+their shape while peaks broaden into slopes that light properly. Cliffs are the
+faces that come out at the cap, and those are marked impassable.
 
 ### Relief
 

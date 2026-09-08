@@ -17,7 +17,7 @@ public final class IslandGeography {
     /** Elevation below this is sea. */
     private static final double SEA_LEVEL = 0.32;
     /** Band above sea level that renders as beach. */
-    private static final double BEACH_BAND = 0.035;
+    private static final double BEACH_BAND = 0.055;
 
     private static final double HIGHLAND = 0.62;
     private static final double MOUNTAIN = 0.73;
@@ -43,7 +43,22 @@ public final class IslandGeography {
      * ground becomes a cliff face rather than a slope. One byte is 8 world units
      * against a 128-unit tile, so this is a touch over a 45 degree grade.
      */
-    private static final int CLIFF_STEP = 7;
+    /**
+     * Steepest allowed step between neighbouring tiles, in height bytes. Eight
+     * bytes against a 128-unit tile is about 32 degrees - steep enough to read as
+     * a hillside, shallow enough that the client still lights it.
+     */
+    private static final int MAX_SLOPE_STEP = 8;
+    /**
+     * Enough relaxation passes for a peak to spread into a slope across the whole
+     * island; the loop stops early once nothing changes.
+     */
+    private static final int SLOPE_PASSES = 60;
+    /**
+     * Slope at which ground becomes impassable. Equal to the cap, so cliffs are
+     * exactly the faces that came out at the maximum the terrain allows.
+     */
+    private static final int CLIFF_STEP = MAX_SLOPE_STEP;
     /**
      * Tiles of guaranteed open sea around the edge of the island's region block.
      * One region wide, which is comfortably more than the client's draw distance.
@@ -83,6 +98,7 @@ public final class IslandGeography {
         normaliseMoisture();
         buildBiomes();
         buildHeights();
+        limitSlopes();
         markCliffs();
         buildDistanceFromSea();
     }
@@ -359,7 +375,7 @@ public final class IslandGeography {
                 // Fine-grained roughness on top of the broad shape. Without it the
                 // lowlands map to a narrow band of the height byte and render as a
                 // flat plane - the hills read, but the ground between them does not.
-                double roughness = (detail.fbm(x, y, 14, 3) - 0.5) * 2.0;
+                double roughness = (detail.fbm(x, y, 40, 3) - 0.5) * 2.0;
                 int h = (int) Math.round(SEA_HEIGHT + eased * MAX_HEIGHT + roughness * LOCAL_RELIEF);
                 h = Math.max(0, Math.min(255, h));
                 // 1 is reserved by the format; TerrainRegion also guards this.
@@ -409,6 +425,52 @@ public final class IslandGeography {
         }
         for (int x = 0; x < size; x++) {
             System.arraycopy(out[x], 0, height[x], 0, size);
+        }
+    }
+
+    /**
+     * Caps how steeply the ground may change between neighbouring tiles.
+     *
+     * The client lights terrain from its vertex normals, so a face steeper than
+     * about 45 degrees turns to a black wall - and raw noise mapped straight onto
+     * the height byte produced faces of 59 bytes, close to vertical. Those were
+     * the black patches in play: the ground is there and objects still draw on
+     * it, but it is lit to nothing.
+     *
+     * This is a talus-angle relaxation. It only ever lowers a tile, so valleys
+     * and coastlines keep their shape while peaks broaden out into slopes that
+     * light properly.
+     */
+    private void limitSlopes() {
+        for (int pass = 0; pass < SLOPE_PASSES; pass++) {
+            boolean changed = false;
+            for (int x = 0; x < size; x++) {
+                for (int y = 0; y < size; y++) {
+                    if (biome[x][y].isWater()) {
+                        continue;
+                    }
+                    int lowest = Integer.MAX_VALUE;
+                    for (int[] d : NEIGHBOURS) {
+                        int nx = x + d[0];
+                        int ny = y + d[1];
+                        if (nx < 0 || ny < 0 || nx >= size || ny >= size) {
+                            continue;
+                        }
+                        lowest = Math.min(lowest, height[nx][ny]);
+                    }
+                    if (lowest == Integer.MAX_VALUE) {
+                        continue;
+                    }
+                    int ceiling = lowest + MAX_SLOPE_STEP;
+                    if (height[x][y] > ceiling) {
+                        height[x][y] = (ceiling == 1) ? 2 : ceiling;
+                        changed = true;
+                    }
+                }
+            }
+            if (!changed) {
+                break;
+            }
         }
     }
 

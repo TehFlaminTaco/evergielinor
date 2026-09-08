@@ -30,6 +30,11 @@ final class TownBuilder {
     private static final int BUILDING_GAP = 2;
     /** Half-width of the always-clear centre of the square. */
     private static final int CORE_HALF = 3;
+    /**
+     * Greatest height spread a building site may already have, in height bytes.
+     * Small enough that levelling the footprint afterwards is imperceptible.
+     */
+    private static final int MAX_BUILDING_SLOPE = 16;
 
     /** Townsfolk ids, from NpcIdentifiers. */
     private static final int NPC_BANKER = 394;
@@ -46,12 +51,11 @@ final class TownBuilder {
                       WorldGenerator.Result result, boolean[][] occupied, boolean[][] hasObject,
                       PrefabLibrary prefabs, List<TerrainPatch> patches, int[][] overlayOverride) {
         Random random = new Random(locality.id * 104729L + 17L);
-        int level = geography.height[centreX][centreY];
 
-        levelGround(locality, centreX, centreY, geography, patches, overlayOverride, level);
+        paveGround(locality, centreX, centreY, geography, overlayOverride);
         reserveCore(centreX, centreY, occupied);
         List<int[]> buildingSlots = placeBuildings(locality, centreX, centreY, geography, result,
-                occupied, hasObject, prefabs, patches, overlayOverride, random, level);
+                occupied, hasObject, prefabs, patches, overlayOverride, random);
         locality.buildings = buildingSlots.size();
         placeServices(locality, centreX, centreY, result, occupied, hasObject, random);
         placeTownsfolk(locality, centreX, centreY, result, random, buildingSlots);
@@ -109,32 +113,28 @@ final class TownBuilder {
     // ------------------------------------------------------------------
 
     /**
-     * Flattens and paves the town footprint. The centre is paved, the rest is
-     * packed earth, and the height is forced to the centre's so buildings sit
-     * squarely on it.
+     * Paves the settlement. It does <em>not</em> touch the ground height.
+     *
+     * Levelling the whole town circle put every village on an obvious artificial
+     * plateau with a rim around it, and it undid the slope limiting the heightmap
+     * had already done - reintroducing exactly the near-vertical steps that light
+     * as black. Settlements now follow the terrain they are built on; only
+     * individual building footprints are levelled, and only where the ground was
+     * nearly flat to begin with.
      */
-    private static void levelGround(Locality locality, int centreX, int centreY,
-                                    IslandGeography geography, List<TerrainPatch> patches,
-                                    int[][] overlayOverride, int level) {
+    private static void paveGround(Locality locality, int centreX, int centreY,
+                                   IslandGeography geography, int[][] overlayOverride) {
         for (int dx = -TOWN_HALF; dx <= TOWN_HALF; dx++) {
             for (int dy = -TOWN_HALF; dy <= TOWN_HALF; dy++) {
                 int x = centreX + dx;
                 int y = centreY + dy;
-                if (!IslandLayout.inBounds(x, y) || geography.biome[x][y].isWater()) {
+                if (!IslandLayout.inBounds(x, y) || !geography.isWalkable(x, y)) {
                     continue;
                 }
                 double distance = Math.sqrt(dx * dx + dy * dy);
                 if (distance > TOWN_HALF) {
                     continue;
                 }
-                // Ease the levelling out at the rim so the town does not sit on a
-                // plateau with a cliff around it.
-                // Flat right out to the rim, blending only over the last few tiles,
-                // so the whole buildable area is level rather than just its middle.
-                double blend = Math.min(1.0, Math.max(0.0, (TOWN_HALF - distance) / 4.0));
-                int blended = (int) Math.round(geography.height[x][y] * (1 - blend) + level * blend);
-                geography.height[x][y] = (blended == 1) ? 2 : blended;
-
                 if (Math.abs(dx) <= PLAZA_HALF && Math.abs(dy) <= PLAZA_HALF) {
                     overlayOverride[x][y] = Biome.OVERLAY_PAVING;
                 } else if (distance < TOWN_HALF - 6 && overlayOverride[x][y] == 0) {
@@ -156,7 +156,7 @@ final class TownBuilder {
                                               IslandGeography geography, WorldGenerator.Result result,
                                               boolean[][] occupied, boolean[][] hasObject,
                                               PrefabLibrary prefabs, List<TerrainPatch> patches,
-                                              int[][] overlayOverride, Random random, int level) {
+                                              int[][] overlayOverride, Random random) {
         List<int[]> placed = new ArrayList<>();
         if (prefabs.isEmpty()) {
             return placed;
@@ -181,7 +181,7 @@ final class TownBuilder {
                         break;
                     }
                     int[] door = placeAlongStreet(centreX, centreY, direction, side, candidates,
-                            geography, result, occupied, hasObject, patches, random, level);
+                            geography, result, occupied, hasObject, patches, random);
                     if (door != null) {
                         placed.add(door);
                     }
@@ -214,7 +214,7 @@ final class TownBuilder {
                                           List<BuildingPrefab> candidates, IslandGeography geography,
                                           WorldGenerator.Result result, boolean[][] occupied,
                                           boolean[][] hasObject, List<TerrainPatch> patches,
-                                          Random random, int level) {
+                                          Random random) {
         for (int step = PLAZA_HALF + 1; step <= TOWN_HALF - 4; step++) {
             for (int attempt = 0; attempt < 6; attempt++) {
                 BuildingPrefab prefab = candidates.get(random.nextInt(candidates.size()));
@@ -227,10 +227,10 @@ final class TownBuilder {
                 int originX = anchorX - (direction[0] != 0 ? 0 : prefab.width / 2);
                 int originY = anchorY - (direction[1] != 0 ? 0 : prefab.height / 2);
 
-                if (!canPlace(originX, originY, prefab, geography, occupied, level)) {
+                if (!canPlace(originX, originY, prefab, geography, occupied)) {
                     continue;
                 }
-                stamp(prefab, originX, originY, result, occupied, hasObject, patches);
+                stamp(prefab, originX, originY, geography, result, occupied, hasObject, patches);
                 return new int[]{originX + prefab.doorX, originY + prefab.doorY};
             }
         }
@@ -248,34 +248,59 @@ final class TownBuilder {
         };
     }
 
-    /** Whether a prefab fits: on land, level, unoccupied, and clear of its neighbours. */
+    /**
+     * Whether a prefab fits: clear, walkable ground that is already close to
+     * level.
+     *
+     * A prefab's geometry assumes a flat floor, so rather than flattening the
+     * landscape to suit it, a site is only accepted where the terrain is nearly
+     * flat already.
+     */
     private static boolean canPlace(int originX, int originY, BuildingPrefab prefab,
-                                    IslandGeography geography, boolean[][] occupied, int level) {
+                                    IslandGeography geography, boolean[][] occupied) {
+        int min = Integer.MAX_VALUE;
+        int max = Integer.MIN_VALUE;
         for (int x = originX - BUILDING_GAP; x < originX + prefab.width + BUILDING_GAP; x++) {
             for (int y = originY - BUILDING_GAP; y < originY + prefab.height + BUILDING_GAP; y++) {
-                if (!IslandLayout.inBounds(x, y)) {
+                if (!IslandLayout.inBounds(x, y) || occupied[x][y]) {
                     return false;
                 }
-                if (geography.biome[x][y].isWater() || !geography.reachable[x][y]) {
+                if (!geography.isWalkable(x, y) || !geography.reachable[x][y]) {
                     return false;
                 }
-                if (occupied[x][y]) {
-                    return false;
-                }
-                // Refuse a site the levelling pass did not reach; a building there
-                // would be cut into a slope.
-                if (Math.abs(geography.height[x][y] - level) > 4) {
-                    return false;
-                }
+                min = Math.min(min, geography.height[x][y]);
+                max = Math.max(max, geography.height[x][y]);
             }
         }
-        return true;
+        return max - min <= MAX_BUILDING_SLOPE;
     }
 
     /** Writes a prefab's objects and floors into the world at an origin. */
     private static void stamp(BuildingPrefab prefab, int originX, int originY,
-                              WorldGenerator.Result result, boolean[][] occupied,
-                              boolean[][] hasObject, List<TerrainPatch> patches) {
+                              IslandGeography geography, WorldGenerator.Result result,
+                              boolean[][] occupied, boolean[][] hasObject, List<TerrainPatch> patches) {
+        // Level just this footprint, to the height it mostly already is. The site
+        // check kept the spread to a few units, so this is a nudge rather than an
+        // excavation, and it stops walls sinking into a gentle slope.
+        long sum = 0;
+        int count = 0;
+        for (int x = originX; x < originX + prefab.width; x++) {
+            for (int y = originY; y < originY + prefab.height; y++) {
+                if (IslandLayout.inBounds(x, y)) {
+                    sum += geography.height[x][y];
+                    count++;
+                }
+            }
+        }
+        int level = count == 0 ? 0 : (int) (sum / count);
+        for (int x = originX; x < originX + prefab.width; x++) {
+            for (int y = originY; y < originY + prefab.height; y++) {
+                if (IslandLayout.inBounds(x, y)) {
+                    geography.height[x][y] = (level == 1) ? 2 : level;
+                }
+            }
+        }
+
         for (BuildingPrefab.PrefabObject object : prefab.objects) {
             int x = originX + object.x;
             int y = originY + object.y;

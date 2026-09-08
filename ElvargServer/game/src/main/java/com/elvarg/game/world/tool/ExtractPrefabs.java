@@ -51,11 +51,11 @@ public final class ExtractPrefabs {
     private static final int MAX_SIDE = 20;
     private static final int MIN_OBJECTS = 8;
     /**
-     * How much of a footprint's perimeter must actually be walled. Below this the
+     * How much of a footprint's border must actually be walled. Below this the
      * capture is a corner clipped out of something bigger, which stamps into a
      * village as a house with two walls and no back.
      */
-    private static final double MIN_WALL_COVERAGE = 0.55;
+    private static final double MIN_WALL_COVERAGE = 0.80;
 
     public static void main(String[] args) throws Exception {
         Path clipping = Paths.get("../data/clipping");
@@ -290,12 +290,44 @@ public final class ExtractPrefabs {
         if (!prefab.hasDoor()) {
             return null;
         }
-        // Reject fragments. A real building is walled most of the way round its
-        // perimeter; a corner clipped out of a terrace is not, and stamping one
-        // into a village produced houses with two walls and no back.
-        long wallCount = prefab.objects.stream().filter(o -> isWall(o.type)).count();
-        int perimeter = 2 * (width + height);
-        if (wallCount < perimeter * MIN_WALL_COVERAGE) {
+        // A surface building has a roof. Requiring one rejects the cave and
+        // dungeon interiors that also read as walled rooms - those were being
+        // stamped into villages as stone chambers full of stalagmites.
+        if (prefab.objects.stream().noneMatch(o -> isRoof(o.type))) {
+            return null;
+        }
+
+        // Reject fragments by checking the footprint is genuinely enclosed.
+        //
+        // Counting walls anywhere inside the box was not enough: interior walls
+        // and furniture inflated the count, so a corner clipped out of a terrace
+        // passed and stamped into a village as a house with no back. This walks
+        // the border itself and asks how much of it is actually walled.
+        boolean[][] wallAt = new boolean[width][height];
+        for (BuildingPrefab.PrefabObject object : prefab.objects) {
+            if (isWall(object.type) && object.x < width && object.y < height) {
+                wallAt[object.x][object.y] = true;
+            }
+        }
+        int border = 0;
+        int walled = 0;
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                boolean onBorder = x == 0 || y == 0 || x == width - 1 || y == height - 1;
+                if (!onBorder) {
+                    continue;
+                }
+                border++;
+                // A wall on the border, or just inside it - walls sit on tile
+                // edges, so the enclosing wall of a building can land either side.
+                if (wallAt[x][y]
+                        || (x > 0 && wallAt[x - 1][y]) || (x < width - 1 && wallAt[x + 1][y])
+                        || (y > 0 && wallAt[x][y - 1]) || (y < height - 1 && wallAt[x][y + 1])) {
+                    walled++;
+                }
+            }
+        }
+        if (border == 0 || walled < border * MIN_WALL_COVERAGE) {
             return null;
         }
 
