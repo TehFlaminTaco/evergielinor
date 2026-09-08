@@ -12,6 +12,7 @@ dependencies {
     with(lib) {
         implementation(commons)
         implementation(commons.lang)
+        implementation(commons.compress)
         implementation(classgraph)
         implementation(slf4j.api)
         implementation(okhttp3)
@@ -137,14 +138,6 @@ tasks.register<JavaExec>("verifyDeterminism") {
     doFirst { args = listOf(project.findProperty("seed")?.toString() ?: "847293") }
 }
 
-tasks.register<JavaExec>("extractPrefabs") {
-    group = "evergielinor"
-    description = "Harvests building prefabs from the original game map into data/definitions."
-    mainClass.set("com.elvarg.game.world.tool.ExtractPrefabs")
-    classpath = sourceSets["main"].runtimeClasspath
-    workingDir = projectDir
-}
-
 tasks.register<JavaExec>("objectSearch") {
     group = "evergielinor"
     description = "Finds object ids by name: -Pq=<substring> [-Pn=<max>]"
@@ -174,4 +167,20 @@ tasks.register<JavaExec>("inspectDungeon") {
     classpath = sourceSets["main"].runtimeClasspath
     workingDir = projectDir
     doFirst { args = listOfNotNull(project.findProperty("id")?.toString()) }
+}
+
+tasks.register<JavaExec>("verifyPalette") {
+    group = "evergielinor"
+    description = "Checks every biome underlay against the client cache's own flo.dat."
+    mainClass.set("com.elvarg.game.world.tool.VerifyPalette")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+}
+
+tasks.register<JavaExec>("extractBuildingParts") {
+    group = "evergielinor"
+    description = "Harvests wall, door, window, roof and furniture sets from the original map."
+    mainClass.set("com.elvarg.game.world.tool.ExtractBuildingParts")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
 }

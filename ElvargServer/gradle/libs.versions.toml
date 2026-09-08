@@ -22,6 +22,9 @@ kotlinx-coroutines = {group = "org.jetbrains.kotlinx", name = "kotlinx-coroutine
 kotlinx-serialization-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-core", version.ref = "kotlinxSerializationCore" }
 commons = { group = "commons-io", name = "commons-io", version = "_"}
 commons-lang = { group = "commons-lang", name = "commons-lang", version = "2.6"}
+# Reads the bzip2 streams inside the client cache's .jag archives, which the
+# palette verifier needs in order to check biome colours against flo.dat.
+commons-compress = { group = "org.apache.commons", name = "commons-compress", version = "1.26.1"}
 classgraph = { group = "io.github.classgraph", name  = "classgraph", version = "_"}
 joda = { group = "joda-time", name = "joda-time", version = "2.11.0" }
 netty-all = { group = "io.netty", name = "netty-all", version.ref = "nettyAll" }

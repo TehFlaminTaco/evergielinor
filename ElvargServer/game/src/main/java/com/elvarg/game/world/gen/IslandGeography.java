@@ -18,6 +18,11 @@ public final class IslandGeography {
     private static final double SEA_LEVEL = 0.32;
     /** Band above sea level that renders as beach. */
     private static final double BEACH_BAND = 0.055;
+    /**
+     * How far inland sand may reach, in tiles. Beyond this a tile in the beach
+     * elevation band is inland lowland, whatever its height.
+     */
+    private static final int BEACH_REACH = 7;
 
     private static final double HIGHLAND = 0.62;
     private static final double MOUNTAIN = 0.73;
@@ -97,10 +102,13 @@ public final class IslandGeography {
         buildElevation();
         normaliseMoisture();
         buildBiomes();
+        // Needed before the beach pass, which is what turns the low-elevation band
+        // into an actual shoreline.
+        buildDistanceFromSea();
+        restrictBeachToCoast();
         buildHeights();
         limitSlopes();
         markCliffs();
-        buildDistanceFromSea();
     }
 
     // ------------------------------------------------------------------
@@ -232,6 +240,9 @@ public final class IslandGeography {
                 landTiles++;
 
                 if (e < SEA_LEVEL + BEACH_BAND) {
+                    // Provisional: this is an elevation band, not a shoreline.
+                    // restrictBeachToCoast sorts the two apart once it knows how
+                    // far each tile is from water.
                     biome[x][y] = Biome.BEACH;
                     continue;
                 }
@@ -267,15 +278,47 @@ public final class IslandGeography {
                     biome[x][y] = Biome.DESERT;
                 } else if (m > 0.72 && e < SEA_LEVEL + 0.14) {
                     biome[x][y] = Biome.SWAMP;
-                } else if (m > 0.62) {
-                    biome[x][y] = Biome.DENSE_FOREST;
-                } else if (m > 0.48) {
-                    biome[x][y] = Biome.FOREST;
-                } else if (m > 0.34) {
-                    biome[x][y] = Biome.GRASSLAND;
                 } else {
-                    biome[x][y] = Biome.PLAINS;
+                    biome[x][y] = lowlandBiome(m);
                 }
+            }
+        }
+    }
+
+    /** The temperate lowland a tile falls into on moisture alone. */
+    private static Biome lowlandBiome(double moisture) {
+        if (moisture > 0.62) {
+            return Biome.DENSE_FOREST;
+        }
+        if (moisture > 0.48) {
+            return Biome.FOREST;
+        }
+        if (moisture > 0.34) {
+            return Biome.GRASSLAND;
+        }
+        return Biome.PLAINS;
+    }
+
+    /**
+     * Cuts the beach back to the coast.
+     *
+     * Beach was assigned by elevation alone, which is wrong twice over: a beach is
+     * a shoreline, and low ground in the middle of an island is a floodplain, not
+     * sand. On this island it put roughly a tenth of the land under big inland
+     * blobs of yellow that read from the air as deserts in the wrong place. Only
+     * the strip actually within sight of water stays sand; the rest becomes the
+     * lowland its moisture calls for.
+     */
+    private void restrictBeachToCoast() {
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                if (biome[x][y] != Biome.BEACH || distanceFromSea[x][y] <= BEACH_REACH) {
+                    continue;
+                }
+                double m = moisture[x][y];
+                // Low, wet and landlocked is marsh; anything else takes the normal
+                // temperate lowland.
+                biome[x][y] = m > 0.70 ? Biome.SWAMP : lowlandBiome(m);
             }
         }
     }

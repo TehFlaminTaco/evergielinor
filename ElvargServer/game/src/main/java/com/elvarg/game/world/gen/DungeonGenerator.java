@@ -27,10 +27,10 @@ import java.util.Set;
  */
 final class DungeonGenerator {
 
-    /** Cave floor, grey #767676. */
-    private static final int FLOOR_UNDERLAY = 54;
-    /** Solid rock, near-black #2e2e2e. */
-    private static final int ROCK_UNDERLAY = 56;
+    /** Cave floor. Underlay value 55, which the client renders as grey #767676. */
+    private static final int FLOOR_UNDERLAY = 55;
+    /** Solid rock. Underlay value 57, rendered as near-black #2e2e2e. */
+    private static final int ROCK_UNDERLAY = 57;
 
     private static final int MIN_FLOORS = 2;
     private static final int MAX_FLOORS = 4;

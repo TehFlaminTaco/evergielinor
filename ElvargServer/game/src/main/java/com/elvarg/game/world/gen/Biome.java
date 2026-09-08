@@ -13,41 +13,42 @@ package com.elvarg.game.world.gen;
 public enum Biome {
 
     // ---- water -------------------------------------------------------------
-    /** Open sea. Underlay #557799 with the animated water overlay (texture 25). */
-    OCEAN(72, 6, true, DifficultyBand.BEGINNER),
-    /** Coastal shallows, same materials as ocean but generated at the margin. */
-    SHALLOWS(72, 6, true, DifficultyBand.BEGINNER),
+    /** Open sea. Slate blue #557799, under the animated water overlay. */
+    OCEAN(73, 0x557799, 6, true, DifficultyBand.BEGINNER),
+    /** Coastal shallows: same materials, generated at the margin. */
+    SHALLOWS(73, 0x557799, 6, true, DifficultyBand.BEGINNER),
 
     // ---- lowland -----------------------------------------------------------
-    /** Sand, #cbba76. */
-    BEACH(67, 0, false, DifficultyBand.BEGINNER),
-    /** Bright green #6cac10 - the Lumbridge-meadow look. */
-    PLAINS(50, 0, false, DifficultyBand.BEGINNER),
-    /** Olive #58680b. */
-    GRASSLAND(48, 0, false, DifficultyBand.LOW),
-    /** Deeper green #35720a. */
-    FOREST(47, 0, false, DifficultyBand.LOW),
-    DENSE_FOREST(47, 0, false, DifficultyBand.MEDIUM),
+    /** Sand #cbba76. */
+    BEACH(68, 0xcbba76, 0, false, DifficultyBand.BEGINNER),
+    /** Bright meadow green #6cac10. */
+    PLAINS(51, 0x6cac10, 0, false, DifficultyBand.BEGINNER),
+    /** Olive pasture #58680b. */
+    GRASSLAND(49, 0x58680b, 0, false, DifficultyBand.LOW),
+    /** Deep green #35720a. */
+    FOREST(48, 0x35720a, 0, false, DifficultyBand.LOW),
+    /** Darker canopy green #396215. */
+    DENSE_FOREST(100, 0x396215, 0, false, DifficultyBand.MEDIUM),
     /** Dark teal-green #125841. */
-    SWAMP(53, 0, false, DifficultyBand.MEDIUM),
+    SWAMP(54, 0x125841, 0, false, DifficultyBand.MEDIUM),
 
     // ---- arid --------------------------------------------------------------
-    /** Sand underlay with the desert overlay #827944 that Al Kharid uses. */
-    DESERT(67, 25, false, DifficultyBand.MEDIUM),
+    /** Pale sand #d0c074, under the desert overlay Al Kharid uses. */
+    DESERT(62, 0xd0c074, 25, false, DifficultyBand.MEDIUM),
 
     // ---- highland ----------------------------------------------------------
     /** Grey #767676. */
-    ROCKY_HIGHLAND(54, 0, false, DifficultyBand.MEDIUM),
+    ROCKY_HIGHLAND(55, 0x767676, 0, false, DifficultyBand.MEDIUM),
     /** Darker grey #4d4d4d. */
-    MOUNTAIN(55, 0, false, DifficultyBand.HIGH),
+    MOUNTAIN(56, 0x4d4d4d, 0, false, DifficultyBand.HIGH),
     /** Pale blue-white #d1d6e7. */
-    SNOW(58, 0, false, DifficultyBand.HIGH),
+    SNOW(59, 0xd1d6e7, 0, false, DifficultyBand.HIGH),
 
     // ---- hostile -----------------------------------------------------------
-    /** Scorched brown #663300; lava pools are painted separately with overlay 19. */
-    VOLCANIC(65, 0, false, DifficultyBand.VERY_HIGH),
-    /** Brown #644e1e, the wasteland look. */
-    WILDERNESS(63, 0, false, DifficultyBand.VERY_HIGH);
+    /** Scorched brown #663300; lava pools are painted separately. */
+    VOLCANIC(66, 0x663300, 0, false, DifficultyBand.VERY_HIGH),
+    /** Wasteland brown #644e1e. */
+    WILDERNESS(64, 0x644e1e, 0, false, DifficultyBand.VERY_HIGH);
 
     /** Overlay id for lava, verified against the Fight Caves region (texture 15). */
     public static final int OVERLAY_LAVA = 19;
@@ -55,19 +56,42 @@ public enum Biome {
     public static final int OVERLAY_WATER = 6;
     /** Overlay id for a dirt road, #6d5b2b. */
     public static final int OVERLAY_DIRT_ROAD = 22;
-    /** Overlay id for town paving, #666666. */
-    public static final int OVERLAY_PAVING = 2;
+    /**
+     * Overlay id for town paving. Value 10 is what Lumbridge and Varrock write
+     * for their roads, so it is known to render as paving rather than chosen from
+     * a colour table.
+     */
+    public static final int OVERLAY_PAVING = 10;
 
     private final int underlay;
+    private final int renderedColour;
     private final int overlay;
     private final boolean water;
     private final DifficultyBand baseDifficulty;
 
-    Biome(int underlay, int overlay, boolean water, DifficultyBand baseDifficulty) {
+    Biome(int underlay, int renderedColour, int overlay, boolean water, DifficultyBand baseDifficulty) {
         this.underlay = underlay;
+        this.renderedColour = renderedColour;
         this.overlay = overlay;
         this.water = water;
         this.baseDifficulty = baseDifficulty;
+    }
+
+    /**
+     * The colour the client actually paints for this biome's underlay.
+     *
+     * Recorded here because getting it wrong is invisible until someone walks
+     * there: the client resolves an underlay through
+     * {@code FloorDefinition.underlays[value - 1]}, and an id chosen by reading
+     * flo.dat with the value as a direct index lands one entry short. That is
+     * exactly what happened - forest was written as 47, which resolves to entry
+     * 46, which is #000000, so every forest on the island rendered pure black.
+     *
+     * {@code ./gradlew :game:verifyPalette} checks each of these against the
+     * cache's own flo.dat so the mistake cannot come back unnoticed.
+     */
+    public int renderedColour() {
+        return renderedColour;
     }
 
     public int underlay() {

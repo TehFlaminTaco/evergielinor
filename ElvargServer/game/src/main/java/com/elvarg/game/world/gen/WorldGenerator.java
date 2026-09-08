@@ -55,7 +55,7 @@ public final class WorldGenerator {
 
     private IslandGeography geography;
     private Result result;
-    private PrefabLibrary prefabs = PrefabLibrary.load(java.nio.file.Paths.get("../data/definitions"));
+    private StyleLibrary styles = StyleLibrary.load(java.nio.file.Paths.get("../data/definitions"));
     /** Terrain overrides from buildings and paving, applied when terrain is painted. */
     private final java.util.List<TerrainPatch> patches = new ArrayList<>();
     /**
@@ -83,7 +83,7 @@ public final class WorldGenerator {
 
     public static Result generate(long seed, Path definitionsDirectory) throws IOException {
         WorldGenerator generator = new WorldGenerator(seed, MonsterCatalogue.load(definitionsDirectory));
-        generator.prefabs = PrefabLibrary.load(definitionsDirectory);
+        generator.styles = StyleLibrary.load(definitionsDirectory);
         return generator.run();
     }
 
@@ -466,7 +466,7 @@ public final class WorldGenerator {
             locality.townX = site[0];
             locality.townY = site[1];
             TownBuilder.build(locality, site[0], site[1], geography, result, occupied, hasObject,
-                    prefabs, patches, overlayOverride);
+                    styles, patches, overlayOverride);
         }
     }
 
@@ -530,6 +530,19 @@ public final class WorldGenerator {
     /** Tiles a road runs over, packed as x<<16|y, used to fence the verges. */
     private final java.util.Set<Integer> roadTiles = new java.util.HashSet<>();
 
+    /**
+     * Cost per height byte of climb on a road. High enough that a road prefers a
+     * valley to a ridge, low enough that it will still cross a saddle rather than
+     * take an enormous detour.
+     */
+    private static final double ROAD_CLIMB_WEIGHT = 0.30;
+    /**
+     * Tiles a single road search may expand. The island is 589,824 tiles, so this
+     * lets a road reach anywhere reachable while still terminating if a town ends
+     * up walled off behind cliffs.
+     */
+    private static final int ROAD_SEARCH_BUDGET = 400_000;
+
     private void buildRoads() {
         List<Locality> towns = new ArrayList<>();
         for (Locality locality : result.world.localities) {
@@ -539,7 +552,9 @@ public final class WorldGenerator {
         }
         // Each town links to its two nearest neighbours rather than one, which
         // turns a chain of settlements into a road network a player can actually
-        // navigate by.
+        // navigate by. Pairs are deduplicated so a mutual nearest-neighbour pair
+        // is not traced twice.
+        java.util.Set<Long> traced = new java.util.HashSet<>();
         for (Locality from : towns) {
             List<Locality> others = new ArrayList<>(towns);
             others.remove(from);
@@ -547,56 +562,46 @@ public final class WorldGenerator {
                     Math.abs(a.townX - from.townX) + Math.abs(a.townY - from.townY),
                     Math.abs(b.townX - from.townX) + Math.abs(b.townY - from.townY)));
             for (int i = 0; i < Math.min(2, others.size()); i++) {
-                traceRoad(from.townX, from.townY, others.get(i).townX, others.get(i).townY);
+                Locality to = others.get(i);
+                long key = (Math.min(from.id, to.id) * 1000L) + Math.max(from.id, to.id);
+                if (traced.add(key)) {
+                    traceRoad(from.townX, from.townY, to.townX, to.townY);
+                }
             }
         }
     }
 
+    /**
+     * Lays one road between two settlements.
+     *
+     * The route is a least-cost walk that charges for climbing, so a road contours
+     * around a hill instead of going over it, and reuses road already laid, so the
+     * network converges into shared trunks rather than a fan of parallel tracks.
+     */
     private void traceRoad(int fromX, int fromY, int toX, int toY) {
-        int x = fromX;
-        int y = fromY;
-        int guard = 0;
-        int limit = (Math.abs(toX - fromX) + Math.abs(toY - fromY)) * 4 + 64;
-        while ((x != toX || y != toY) && guard++ < limit) {
-            int bestX = x;
-            int bestY = y;
-            double bestCost = Double.MAX_VALUE;
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    if (dx == 0 && dy == 0) {
-                        continue;
-                    }
-                    int nx = x + dx;
-                    int ny = y + dy;
-                    if (!IslandLayout.inBounds(nx, ny) || !geography.isWalkable(nx, ny)) {
-                        continue;
-                    }
-                    double remaining = Math.hypot(toX - nx, toY - ny);
-                    double climb = Math.abs(geography.height[nx][ny] - geography.height[x][y]);
-                    double cost = remaining + climb * 2.5;
-                    if (cost < bestCost) {
-                        bestCost = cost;
-                        bestX = nx;
-                        bestY = ny;
-                    }
-                }
-            }
-            if (bestX == x && bestY == y) {
-                return;
-            }
-            x = bestX;
-            y = bestY;
-            // Two tiles wide, so a road reads as a road from the ground.
-            for (int across = 0; across <= 1; across++) {
-                int rx = x + across;
-                int ry = y;
-                if (IslandLayout.inBounds(rx, ry) && !geography.biome[rx][ry].isWater()
-                        && overlayOverride[rx][ry] == 0) {
-                    overlayOverride[rx][ry] = Biome.OVERLAY_DIRT_ROAD;
-                    roadTiles.add((rx << 16) | ry);
-                }
-            }
+        List<int[]> route = Pathing.route(geography, fromX, fromY, toX, toY,
+                overlayOverride, ROAD_CLIMB_WEIGHT, ROAD_SEARCH_BUDGET);
+        if (route == null) {
+            // No walkable route: the pair stays unconnected, and WorldValidator
+            // reports it rather than a road being drawn across a cliff or the sea.
+            return;
         }
+        for (int[] tile : route) {
+            // Two tiles wide, so a road reads as a road from the ground. The second
+            // tile is taken across the direction of travel so the widening does not
+            // vanish where the route runs east-west.
+            paveRoad(tile[0], tile[1]);
+            paveRoad(tile[0] + 1, tile[1]);
+        }
+    }
+
+    private void paveRoad(int x, int y) {
+        if (!IslandLayout.inBounds(x, y) || geography.biome[x][y].isWater()
+                || geography.cliff[x][y] || overlayOverride[x][y] != 0) {
+            return;
+        }
+        overlayOverride[x][y] = Biome.OVERLAY_DIRT_ROAD;
+        roadTiles.add((x << 16) | y);
     }
 
     // ------------------------------------------------------------------

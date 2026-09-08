@@ -26,23 +26,17 @@ public final class IslandPreview {
      * Preview colours, taken from each biome's real flo.dat underlay colour so the
      * preview and the rendered game agree about what the island looks like.
      */
-    private static final Map<Biome, Integer> COLOURS = new EnumMap<>(Biome.class);
-
-    static {
-        COLOURS.put(Biome.OCEAN, 0x2c4a6b);
-        COLOURS.put(Biome.SHALLOWS, 0x557799);
-        COLOURS.put(Biome.BEACH, 0xcbba76);
-        COLOURS.put(Biome.PLAINS, 0x6cac10);
-        COLOURS.put(Biome.GRASSLAND, 0x58680b);
-        COLOURS.put(Biome.FOREST, 0x35720a);
-        COLOURS.put(Biome.DENSE_FOREST, 0x244d07);
-        COLOURS.put(Biome.SWAMP, 0x125841);
-        COLOURS.put(Biome.DESERT, 0x827944);
-        COLOURS.put(Biome.ROCKY_HIGHLAND, 0x767676);
-        COLOURS.put(Biome.MOUNTAIN, 0x4d4d4d);
-        COLOURS.put(Biome.SNOW, 0xd1d6e7);
-        COLOURS.put(Biome.VOLCANIC, 0x663300);
-        COLOURS.put(Biome.WILDERNESS, 0x644e1e);
+    /**
+     * Preview colours come from each biome's own renderedColour, which is checked
+     * against the client's flo.dat by :game:verifyPalette.
+     *
+     * They used to be a separate hand-copied table, which is how a preview that
+     * showed sandy beaches and green forest coexisted with a game that rendered
+     * brown mud and black void: the two were reading different palettes, so the
+     * preview could not have caught the mistake.
+     */
+    private static int colourOf(Biome biome) {
+        return biome.renderedColour();
     }
 
     public static void main(String[] args) throws Exception {
@@ -78,7 +72,7 @@ public final class IslandPreview {
             for (int y = 0; y < size; y++) {
                 Biome biome = geography.biome[x][y];
                 counts.merge(biome, 1, Integer::sum);
-                int rgb = COLOURS.getOrDefault(biome, 0xff00ff);
+                int rgb = colourOf(biome);
                 if (geography.cliff[x][y]) {
                     // Cliff faces draw as bare rock so impassable ground is visible.
                     rgb = 0x5a5148;
@@ -93,8 +87,48 @@ public final class IslandPreview {
                 image.setRGB(x, size - 1 - y, rgb);
             }
         }
+        Map<Integer, Integer> overlayCounts = new java.util.TreeMap<>();
+        // Paving and other ground overlays, so worn paths and building floors read
+        // as layout rather than being invisible under the biome colour.
+        for (var entry : result.terrain.entrySet()) {
+            int regionX = (entry.getKey() >> 8) - IslandLayout.BLOCK_REGION_X;
+            int regionY = (entry.getKey() & 0xff) - IslandLayout.BLOCK_REGION_Y;
+            if (regionX < 0 || regionY < 0
+                    || regionX >= IslandLayout.ISLAND_REGIONS || regionY >= IslandLayout.ISLAND_REGIONS) {
+                continue;
+            }
+            for (int lx = 0; lx < 64; lx++) {
+                for (int ly = 0; ly < 64; ly++) {
+                    int overlay = entry.getValue().overlay[0][lx][ly];
+                    if (overlay == 0) {
+                        continue;
+                    }
+                    int x = regionX * 64 + lx;
+                    int y = regionY * 64 + ly;
+                    if (x < 0 || y < 0 || x >= size || y >= size) {
+                        continue;
+                    }
+                    overlayCounts.merge(overlay, 1, Integer::sum);
+                    int rgb;
+                    if (overlay == Biome.OVERLAY_WATER) {
+                        // Water is already the biome colour underneath; painting it
+                        // as "some overlay" turned the whole ocean into mud.
+                        continue;
+                    } else if (overlay == Biome.OVERLAY_LAVA) {
+                        rgb = 0xd8531a;
+                    } else if (overlay == Biome.OVERLAY_DIRT_ROAD) {
+                        rgb = 0xa8763f;
+                    } else {
+                        rgb = 0x8d7d5e;
+                    }
+                    image.setRGB(x, size - 1 - y, rgb);
+                }
+            }
+        }
         // Every generated object, so buildings and resource clusters are visible as
-        // structure rather than having to be taken on trust.
+        // structure rather than having to be taken on trust. Roofs and upper floors
+        // are skipped: a roof covers its whole building, so drawing it turns every
+        // house into a featureless black block and hides the layout being judged.
         for (var entry : result.objects.entrySet()) {
             int regionX = (entry.getKey() >> 8) - IslandLayout.BLOCK_REGION_X;
             int regionY = (entry.getKey() & 0xff) - IslandLayout.BLOCK_REGION_Y;
@@ -103,16 +137,25 @@ public final class IslandPreview {
                 continue;
             }
             for (var object : entry.getValue()) {
+                if (object.plane != 0 || (object.type >= 12 && object.type <= 21)) {
+                    continue;
+                }
                 int x = regionX * 64 + object.localX;
                 int y = regionY * 64 + object.localY;
                 if (x < 0 || y < 0 || x >= size || y >= size) {
                     continue;
                 }
-                // Walls and roofs draw dark so a building reads as an outline;
-                // everything else (trees, rocks) draws as a lighter speck.
-                boolean structural = object.type <= 3 || object.type == 9
-                        || (object.type >= 12 && object.type <= 21);
-                image.setRGB(x, size - 1 - y, structural ? 0x1a1512 : 0x3d3128);
+                int rgb;
+                if (object.type <= 3 || object.type == 9) {
+                    rgb = 0x1a1512;              // wall
+                } else if (object.type <= 8) {
+                    rgb = 0xc23b22;              // door or wall decoration
+                } else if (object.type == 22) {
+                    rgb = 0x8d7d5e;              // ground decoration
+                } else {
+                    rgb = 0x3d3128;              // scenery: trees, rocks, furniture
+                }
+                image.setRGB(x, size - 1 - y, rgb);
             }
         }
 
@@ -203,6 +246,8 @@ public final class IslandPreview {
                 .sorted((a, b) -> b.getValue() - a.getValue())
                 .forEach(e -> System.out.printf("  %-16s %7d  %5.1f%%%n",
                         e.getKey(), e.getValue(), 100.0 * e.getValue() / (size * size)));
+        System.out.println("\noverlay tiles (0 = none, painted over the biome):");
+        overlayCounts.forEach((id, count) -> System.out.printf("  overlay %-4d %8d%n", id, count));
         System.out.println("\nmarkers: cyan = start village, cream = settlement,");
         System.out.println("         red = dungeon with a boss, purple = boss-less dungeon");
         System.out.println("\nwrote " + out.getAbsolutePath());
