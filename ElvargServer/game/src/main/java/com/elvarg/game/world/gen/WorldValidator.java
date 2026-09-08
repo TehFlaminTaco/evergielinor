@@ -20,7 +20,7 @@ import java.util.Set;
  */
 public final class WorldValidator {
 
-    public enum Severity { FATAL, WARNING }
+    public enum Severity { FATAL, WARNING, NOTE }
 
     public static final class Finding {
         public final Severity severity;
@@ -57,14 +57,29 @@ public final class WorldValidator {
         void warn(String rule, String detail) {
             findings.add(new Finding(Severity.WARNING, rule, detail));
         }
+
+        void note(String rule, String detail) {
+            findings.add(new Finding(Severity.NOTE, rule, detail));
+        }
     }
 
     private WorldValidator() {
     }
 
     public static Report validate(GeneratedWorld world, IslandGeography geography) {
+        return validate(world, geography, null);
+    }
+
+    /**
+     * @param objects every object about to be written into the map files, or null
+     *                to skip the render check
+     */
+    public static Report validate(GeneratedWorld world, IslandGeography geography,
+                                  java.util.Map<Integer, java.util.List<
+                                          com.elvarg.game.world.codec.PlacedObject>> objects) {
         Report report = new Report();
 
+        validateRendering(objects, report);
         validateSpawn(world, geography, report);
         validateLocalities(world, report);
         validateReachability(world, geography, report);
@@ -73,6 +88,46 @@ public final class WorldValidator {
         validateDungeons(world, report);
 
         return report;
+    }
+
+    // --- rendering ----------------------------------------------------------
+
+    /**
+     * Catches objects placed at a landscape type they have no model for.
+     *
+     * The client resolves a model by searching the definition's type list and
+     * returns null when the type is not in it, and a null model draws nothing.
+     * The object is still in the map file and the server still clips it, so the
+     * failure is completely silent: it looks like a wall with a hole in it, or a
+     * fence that is not there. Buildings shipped with a hole at every corner for
+     * exactly this reason, so it gets a check rather than a convention.
+     */
+    private static void validateRendering(java.util.Map<Integer, java.util.List<
+            com.elvarg.game.world.codec.PlacedObject>> objects, Report report) {
+        if (objects == null) {
+            return;
+        }
+        java.util.Map<Long, Integer> offenders = new java.util.TreeMap<>();
+        int total = 0;
+        for (java.util.List<com.elvarg.game.world.codec.PlacedObject> region : objects.values()) {
+            for (com.elvarg.game.world.codec.PlacedObject object : region) {
+                total++;
+                if (!ObjectVetting.rendersAt(object.id, object.type)) {
+                    offenders.merge(((long) object.id << 8) | object.type, 1, Integer::sum);
+                }
+            }
+        }
+        for (java.util.Map.Entry<Long, Integer> entry : offenders.entrySet()) {
+            int id = (int) (entry.getKey() >> 8);
+            int type = (int) (entry.getKey() & 0xff);
+            report.fatal("object renders", "object " + id + " (" + ObjectVetting.nameOf(id)
+                    + ") placed at landscape type " + type + " has no model for it - "
+                    + entry.getValue() + " invisible placements");
+        }
+        if (offenders.isEmpty() && total > 0) {
+            // Nothing to report, but the count is worth having in the log.
+            report.note("object renders", total + " objects all draw at the type they are placed at");
+        }
     }
 
     // --- starting area ------------------------------------------------------

@@ -171,10 +171,17 @@ tasks.register<JavaExec>("inspectDungeon") {
 
 tasks.register<JavaExec>("verifyPalette") {
     group = "evergielinor"
-    description = "Checks every biome underlay against the client cache's own flo.dat."
+    description = "Checks every floor value on the island against the client cache's own flo.dat. -Plist dumps the palette."
     mainClass.set("com.elvarg.game.world.tool.VerifyPalette")
     classpath = sourceSets["main"].runtimeClasspath
     workingDir = projectDir
+    doFirst {
+        args = if (project.hasProperty("list")) {
+            listOf("../../ElvargClient/Cache", "list")
+        } else {
+            listOf<String>()
+        }
+    }
 }
 
 tasks.register<JavaExec>("extractBuildingParts") {

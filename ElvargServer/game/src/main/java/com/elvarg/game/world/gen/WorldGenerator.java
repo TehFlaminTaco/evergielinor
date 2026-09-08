@@ -74,6 +74,19 @@ public final class WorldGenerator {
      * painted after content is placed, so these are applied last and win.
      */
     private int[][] overlayOverride;
+    /**
+     * Shape and rotation for each overridden overlay, filled in by
+     * {@link #shapeOverlays()}. Shape 0 is the full tile; the partial shapes are
+     * what turn a staircase of square tiles into a diagonal.
+     */
+    private int[][] overlayShapeOverride;
+    private int[][] overlayRotationOverride;
+    /**
+     * Underlay to use instead of the biome's, where a tile needs to read as the
+     * ground beneath an overlay rather than as its own biome. Used by the beach
+     * pass so a shaped sand edge shows grass on the side it does not cover.
+     */
+    private int[][] underlayOverride;
 
     public WorldGenerator(long seed, MonsterCatalogue monsters) {
         this.seed = seed;
@@ -88,6 +101,14 @@ public final class WorldGenerator {
     }
 
     public Result run() {
+        // Every placement decision consults the object definitions - footprints,
+        // and which landscape types an object will actually draw at. Loading them
+        // was the caller's job, which meant a tool that forgot produced a world
+        // with almost no objects in it and no error: that is how the preview came
+        // to show empty settlements while the installed world had buildings.
+        if (com.elvarg.game.definition.ObjectDefinition.streamIndices == null) {
+            com.elvarg.game.definition.ObjectDefinition.init();
+        }
         result = new Result();
         result.world.seed = seed;
         result.world.generatorVersion = GeneratedWorld.GENERATOR_VERSION;
@@ -98,6 +119,9 @@ public final class WorldGenerator {
         result.geography = geography;
         occupied = new boolean[geography.size][geography.size];
         overlayOverride = new int[geography.size][geography.size];
+        overlayShapeOverride = new int[geography.size][geography.size];
+        overlayRotationOverride = new int[geography.size][geography.size];
+        underlayOverride = new int[geography.size][geography.size];
         hasObject = new boolean[geography.size][geography.size];
 
         int[] start = chooseStartingSite();
@@ -113,6 +137,8 @@ public final class WorldGenerator {
         placeClutter();
 
         finaliseSpawn(start);
+        paintBeaches();
+        shapeOverlays();
         paintTerrain();
         return result;
     }
@@ -831,37 +857,32 @@ public final class WorldGenerator {
      * things. The point is to make a road look like a route somebody maintains
      * rather than a stripe of different-coloured ground.
      */
+    /**
+     * Fences the verges of the road network.
+     *
+     * Runs, not scatter: see {@link Fencing}. The fence sits on the verge tile's
+     * edge facing the road, so a run reads as one continuous line beside the
+     * track rather than as posts dropped at random angles.
+     */
     private void fenceRoads() {
-        Noise pick = noise.channel(41);
+        boolean[][] isRoad = new boolean[geography.size][geography.size];
+        List<int[]> tiles = new ArrayList<>(roadTiles.size());
         for (int packed : roadTiles) {
             int x = packed >> 16;
             int y = packed & 0xffff;
-            // Only fence a verge: a tile beside the road that is not itself road.
-            for (int[] d : new int[][]{{0, 1}, {0, -1}, {1, 0}, {-1, 0}}) {
-                int vx = x + d[0];
-                int vy = y + d[1];
-                if (!IslandLayout.inBounds(vx, vy) || roadTiles.contains((vx << 16) | vy)) {
-                    continue;
-                }
-                if (!geography.isWalkable(vx, vy) || occupied[vx][vy]) {
-                    continue;
-                }
-                if (pick.at(vx * 13 + 1, vy * 7 + 5) > 0.16) {
-                    continue;
-                }
-                int id = FENCE_OBJECTS[pick.intAt(vx, vy, FENCE_OBJECTS.length)];
-                if (placeObject(id, vx, vy, 0, PlacedObject.TYPE_SCENERY, pick.intAt(vx + 3, vy, 4))) {
-                    result.world.clutterObjectCount++;
-                }
+            if (IslandLayout.inBounds(x, y)) {
+                isRoad[x][y] = true;
+                tiles.add(new int[]{x, y});
             }
         }
+        // roadTiles is a hash set, so fix an order before anything random reads
+        // it or two runs of the same seed would fence different verges.
+        tiles.sort((a, b) -> a[0] != b[0] ? a[0] - b[0] : a[1] - b[1]);
+        Random random = new Random(seed * 31L + 4177L);
+        result.world.clutterObjectCount += Fencing.layVerges(geography, isRoad, tiles, random,
+                (id, x, y, rotation) -> placeObject(id, x, y, 0, PlacedObject.TYPE_WALL, rotation));
     }
 
-    /**
-     * Fence pieces, from the cache's own definitions. All 1x1 and solid, so a
-     * fenced verge is a real barrier rather than decoration a player walks over.
-     */
-    private static final int[] FENCE_OBJECTS = {17783, 17787, 17782, 1116, 1117};
 
     // ------------------------------------------------------------------
     // Monsters
@@ -1029,10 +1050,13 @@ public final class WorldGenerator {
                         int localX = regionX * 64 + x;
                         int localY = regionY * 64 + y;
                         Biome biome = geography.biome[localX][localY];
-                        region.setUnderlay(0, x, y, biome.underlay());
+                        int underlay = underlayOverride[localX][localY];
+                        region.setUnderlay(0, x, y, underlay != 0 ? underlay : biome.underlay());
                         int override = overlayOverride[localX][localY];
                         if (override != 0) {
-                            region.setOverlay(0, x, y, override, 0, 0);
+                            region.setOverlay(0, x, y, override,
+                                    overlayShapeOverride[localX][localY],
+                                    overlayRotationOverride[localX][localY]);
                         } else if (biome.overlay() != 0) {
                             region.setOverlay(0, x, y, biome.overlay(), 0, 0);
                         }
@@ -1048,6 +1072,169 @@ public final class WorldGenerator {
         }
         applyPatches();
     }
+
+    /**
+     * Turns the beach into a shore.
+     *
+     * Sand goes down as an overlay rather than being left to the beach biome's
+     * underlay, because the client blends underlays across a wide neighbourhood
+     * and a narrow strip of sand between grass and sea comes out as a green-yellow
+     * wash with no sand in it - which is exactly what the coast looked like.
+     *
+     * The landward fringe also takes its neighbour's underlay, so that when
+     * {@link #shapeOverlays()} cuts the corners off those tiles the exposed half
+     * reads as the grass behind the beach and the shoreline becomes a diagonal
+     * instead of a flight of steps.
+     */
+    private void paintBeaches() {
+        int size = geography.size;
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                if (geography.biome[x][y] != Biome.BEACH || overlayOverride[x][y] != 0) {
+                    continue;
+                }
+                overlayOverride[x][y] = Biome.OVERLAY_SAND;
+                int inland = inlandUnderlayBeside(x, y);
+                if (inland != 0) {
+                    underlayOverride[x][y] = inland;
+                }
+            }
+        }
+    }
+
+    /**
+     * The underlay of the land behind a beach tile, or 0 if it only touches more
+     * beach and sea. Scanned in a fixed order so the answer depends on the seed
+     * and not on which neighbour happened to be looked at first.
+     */
+    private int inlandUnderlayBeside(int x, int y) {
+        for (int[] step : new int[][]{{0, 1}, {1, 0}, {0, -1}, {-1, 0}}) {
+            int nx = x + step[0];
+            int ny = y + step[1];
+            if (!IslandLayout.inBounds(nx, ny)) {
+                continue;
+            }
+            Biome neighbour = geography.biome[nx][ny];
+            if (neighbour != Biome.BEACH && !neighbour.isWater()) {
+                return neighbour.underlay();
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Gives every painted overlay a shape, so its edges are diagonals.
+     *
+     * Written as full tiles, a road climbing a slope is a staircase of squares
+     * and a shoreline is a flight of steps - both of which read as tiling rather
+     * than as terrain. The landscape format carries a shape and rotation per
+     * overlay tile, and {@link OverlayShape} works out which pair covers a given
+     * set of tile corners.
+     *
+     * Two rules do the work. A tile that has the overlay keeps a corner unless
+     * both of the neighbours meeting at that corner lack it, which bevels the
+     * outside of every bend. A tile that does not have the overlay gains the
+     * corner where two neighbours meeting at it both do, which fills the notch
+     * on the inside. Together they turn a staircase into a straight diagonal.
+     */
+    private void shapeOverlays() {
+        int size = geography.size;
+        int[][] source = new int[size][];
+        for (int x = 0; x < size; x++) {
+            // Work from a snapshot: filling notches must not cascade, or one
+            // diagonal would flood the ground beside it.
+            source[x] = overlayOverride[x].clone();
+        }
+
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                int id = source[x][y];
+                int corners;
+                if (id != 0) {
+                    corners = keptCorners(source, x, y, id);
+                    if (corners == 0) {
+                        // A lone tile with nothing of its kind orthogonally next
+                        // to it is speckle, not a path.
+                        overlayOverride[x][y] = 0;
+                        continue;
+                    }
+                } else {
+                    id = notchFiller(source, x, y);
+                    if (id == 0 || !geography.isWalkable(x, y)) {
+                        continue;
+                    }
+                    corners = filledCorners(source, x, y, id);
+                    if (corners == 0) {
+                        continue;
+                    }
+                    overlayOverride[x][y] = id;
+                }
+                if (corners == 0xf) {
+                    continue;
+                }
+                int packed = OverlayShape.forCorners(corners);
+                if (packed < 0) {
+                    // Opposite corners only; no single tile shape covers that, so
+                    // the tile stays full rather than losing its overlay.
+                    continue;
+                }
+                overlayShapeOverride[x][y] = OverlayShape.shapeOf(packed);
+                overlayRotationOverride[x][y] = OverlayShape.rotationOf(packed);
+            }
+        }
+    }
+
+    /** Corners of a tile that keep their overlay: all but the outside of a bend. */
+    private int keptCorners(int[][] source, int x, int y, int id) {
+        int corners = 0;
+        for (int corner = 0; corner < 4; corner++) {
+            int dx = CORNER_X[corner];
+            int dy = CORNER_Y[corner];
+            if (matches(source, x + dx, y, id) || matches(source, x, y + dy, id)) {
+                corners |= 1 << corner;
+            }
+        }
+        return corners;
+    }
+
+    /** Corners a bare tile gains where two neighbours of one overlay meet on it. */
+    private int filledCorners(int[][] source, int x, int y, int id) {
+        int corners = 0;
+        for (int corner = 0; corner < 4; corner++) {
+            if (matches(source, x + CORNER_X[corner], y, id)
+                    && matches(source, x, y + CORNER_Y[corner], id)) {
+                corners |= 1 << corner;
+            }
+        }
+        return corners;
+    }
+
+    /** The overlay, if any, that meets on a corner of this bare tile. */
+    private int notchFiller(int[][] source, int x, int y) {
+        for (int corner = 0; corner < 4; corner++) {
+            int a = valueAt(source, x + CORNER_X[corner], y);
+            int b = valueAt(source, x, y + CORNER_Y[corner]);
+            if (a != 0 && a == b) {
+                return a;
+            }
+        }
+        return 0;
+    }
+
+    private boolean matches(int[][] source, int x, int y, int id) {
+        return valueAt(source, x, y) == id;
+    }
+
+    private int valueAt(int[][] source, int x, int y) {
+        return IslandLayout.inBounds(x, y) ? source[x][y] : 0;
+    }
+
+    /**
+     * Corner directions in the order {@link OverlayShape} indexes them:
+     * south-west, south-east, north-east, north-west.
+     */
+    private static final int[] CORNER_X = {-1, 1, 1, -1};
+    private static final int[] CORNER_Y = {-1, -1, 1, 1};
 
     /**
      * Applies building floors and paving over the biome pass.

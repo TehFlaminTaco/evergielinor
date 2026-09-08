@@ -62,6 +62,17 @@ public enum Biome {
      * a colour table.
      */
     public static final int OVERLAY_PAVING = 10;
+    /**
+     * Overlay id for sand, #cbba76.
+     *
+     * The beach needs to be an overlay and not just an underlay. The client
+     * blends underlay colours across a wide neighbourhood, so a strip of sand
+     * seven tiles wide between grass and sea comes out as a yellow-green wash
+     * with no sand in it. An overlay draws as a flat polygon over the top and
+     * keeps its colour, and it can carry a shape, which is what lets the
+     * shoreline be a diagonal rather than a staircase.
+     */
+    public static final int OVERLAY_SAND = 25;
 
     private final int underlay;
     private final int renderedColour;

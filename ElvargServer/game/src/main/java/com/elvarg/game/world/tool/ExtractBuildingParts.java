@@ -1,6 +1,7 @@
 package com.elvarg.game.world.tool;
 
 import com.elvarg.game.definition.ObjectDefinition;
+import com.elvarg.game.world.gen.ObjectVetting;
 import com.elvarg.game.world.codec.LandscapeCodec;
 import com.elvarg.game.world.codec.MapIndex;
 import com.elvarg.game.world.codec.PlacedObject;
@@ -190,7 +191,12 @@ public final class ExtractBuildingParts {
                 continue;
             }
             inside.add(object);
-            if (object.type == TYPE_WALL_STRAIGHT && !isDoor(object.id)) {
+            // Only a wall that can also draw a corner is a candidate material.
+            // A tile holds one wall object per plane, so the four corners of a
+            // rectangle need the two-edged type 2; a material without it leaves a
+            // hole at every corner, which is what the generated houses had.
+            if (object.type == TYPE_WALL_STRAIGHT && !isDoor(object.id)
+                    && ObjectVetting.canFormWalls(object.id)) {
                 wallCounts.merge(object.id, 1, Integer::sum);
             }
         }
@@ -204,9 +210,9 @@ public final class ExtractBuildingParts {
         for (PlacedObject object : inside) {
             if (isRoof(object.type)) {
                 acc.roofs.merge(((long) object.id << 8) | object.type, 1, Integer::sum);
-            } else if (object.type == TYPE_WALL_CORNER) {
+            } else if (object.type == TYPE_WALL_CORNER && ObjectVetting.canFormWalls(object.id)) {
                 acc.corners.merge(object.id, 1, Integer::sum);
-            } else if (isDoor(object.id)) {
+            } else if (isDoor(object.id) && ObjectVetting.rendersAt(object.id, TYPE_WALL_STRAIGHT)) {
                 acc.doors.merge(object.id, 1, Integer::sum);
             } else if (object.type >= 4 && object.type <= 8) {
                 if (isWindow(object.id)) {

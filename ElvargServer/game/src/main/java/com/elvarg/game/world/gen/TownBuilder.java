@@ -71,6 +71,7 @@ final class TownBuilder {
         locality.buildings = doorways.size();
 
         wearPaths(centreX, centreY, doorways, geography, overlayOverride);
+        fenceLanes(centreX, centreY, geography, result, occupied, hasObject, overlayOverride, random);
         placeServices(locality, centreX, centreY, geography, result, occupied, hasObject, random);
         placeTownsfolk(locality, centreX, centreY, result, random, doorways);
         dressSettlement(centreX, centreY, geography, result, occupied, hasObject, overlayOverride, random);
@@ -156,7 +157,11 @@ final class TownBuilder {
                 continue;
             }
             stamp(building, originX, originY, geography, result, occupied, hasObject, patches);
-            doorways.add(new int[]{originX + building.doorX, originY + building.doorY});
+            // The approach tile, not the door tile: a lane starting inside the
+            // house routes out through whatever wall is cheapest and surfaces
+            // somewhere along its side.
+            doorways.add(new int[]{originX + building.doorApproachX, originY + building.doorApproachY,
+                    originX + building.doorX, originY + building.doorY});
         }
         return doorways;
     }
@@ -317,9 +322,15 @@ final class TownBuilder {
                 (a[0] - centreX) * (a[0] - centreX) + (a[1] - centreY) * (a[1] - centreY),
                 (b[0] - centreX) * (b[0] - centreX) + (b[1] - centreY) * (b[1] - centreY)));
         for (int[] door : ordered) {
+            if (!IslandLayout.inBounds(door[0], door[1]) || !geography.isWalkable(door[0], door[1])) {
+                continue;
+            }
             List<int[]> route = Pathing.route(geography, door[0], door[1], centreX, centreY,
                     overlayOverride, PATH_CLIMB_WEIGHT, PATH_SEARCH_BUDGET);
             if (route == null) {
+                // Still lay the doorstep, so the entrance reads as an entrance
+                // even where the lane could not be walked to the middle.
+                overlayOverride[door[0]][door[1]] = Biome.OVERLAY_DIRT_ROAD;
                 continue;
             }
             for (int[] tile : route) {
@@ -340,6 +351,39 @@ final class TownBuilder {
                 }
             }
         }
+    }
+
+    /**
+     * Fences the verges of the settlement's lanes.
+     *
+     * Same machinery as the roads between towns, scoped to the village: a run of
+     * wall-type fence along one side of a lane, facing it.
+     */
+    private static void fenceLanes(int centreX, int centreY, IslandGeography geography,
+                                   WorldGenerator.Result result, boolean[][] occupied,
+                                   boolean[][] hasObject, int[][] overlayOverride, Random random) {
+        boolean[][] isLane = new boolean[IslandLayout.SIZE][IslandLayout.SIZE];
+        List<int[]> tiles = new ArrayList<>();
+        for (int dx = -TOWN_HALF; dx <= TOWN_HALF; dx++) {
+            for (int dy = -TOWN_HALF; dy <= TOWN_HALF; dy++) {
+                int x = centreX + dx;
+                int y = centreY + dy;
+                if (IslandLayout.inBounds(x, y) && overlayOverride[x][y] == Biome.OVERLAY_DIRT_ROAD) {
+                    isLane[x][y] = true;
+                    tiles.add(new int[]{x, y});
+                }
+            }
+        }
+        Fencing.layVerges(geography, isLane, tiles, random, (id, x, y, rotation) -> {
+            if (!IslandLayout.inBounds(x, y) || occupied[x][y] || hasObject[x][y]) {
+                return false;
+            }
+            WorldGenerator.addObject(result.objects, IslandLayout.worldX(x), IslandLayout.worldY(y), 0,
+                    id, PlacedObject.TYPE_WALL, rotation);
+            hasObject[x][y] = true;
+            result.world.clutterObjectCount++;
+            return true;
+        });
     }
 
     /**
@@ -438,10 +482,13 @@ final class TownBuilder {
                         }
                     }
                 }
-                if (besidePath && random.nextInt(7) == 0) {
-                    int id = SETTLEMENT_FENCES[random.nextInt(SETTLEMENT_FENCES.length)];
-                    place(result, occupied, hasObject, geography, id, x, y, random.nextInt(4));
-                } else if (nearBuilding && random.nextInt(5) == 0) {
+                if (besidePath) {
+                    // Fences beside a lane are laid as runs by fenceLanes; here
+                    // the verge only gets undergrowth, so the two do not fight
+                    // over the same tiles.
+                    continue;
+                }
+                if (nearBuilding && random.nextInt(5) == 0) {
                     int id = SETTLEMENT_CLUTTER[random.nextInt(SETTLEMENT_CLUTTER.length)];
                     place(result, occupied, hasObject, geography, id, x, y, random.nextInt(4));
                 }
@@ -450,7 +497,6 @@ final class TownBuilder {
     }
 
     /** Fence pieces used along village tracks. */
-    private static final int[] SETTLEMENT_FENCES = {17783, 17787, 17782};
     /** Ground clutter that reads as a lived-in yard. */
     private static final int[] SETTLEMENT_CLUTTER = {3794, 3795, 4815, 1298, 1173};
 

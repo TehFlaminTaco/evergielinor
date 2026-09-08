@@ -113,7 +113,7 @@ public final class GenerateWorld {
 
         // --- validate --------------------------------------------------------
         System.out.println();
-        WorldValidator.Report report = WorldValidator.validate(world, result.geography);
+        WorldValidator.Report report = WorldValidator.validate(world, result.geography, result.objects);
         if (report.findings.isEmpty()) {
             System.out.println("validation          passed with no findings");
         } else {

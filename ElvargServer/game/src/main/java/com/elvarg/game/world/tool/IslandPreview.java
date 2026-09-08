@@ -88,6 +88,10 @@ public final class IslandPreview {
             }
         }
         Map<Integer, Integer> overlayCounts = new java.util.TreeMap<>();
+        // How many overlay tiles are partial rather than full squares: the
+        // difference between a diagonal shoreline and a flight of steps.
+        int[] shapedTiles = {0};
+        Map<Integer, Integer> typeCounts = new java.util.TreeMap<>();
         // Paving and other ground overlays, so worn paths and building floors read
         // as layout rather than being invisible under the biome colour.
         for (var entry : result.terrain.entrySet()) {
@@ -109,6 +113,9 @@ public final class IslandPreview {
                         continue;
                     }
                     overlayCounts.merge(overlay, 1, Integer::sum);
+                    if (entry.getValue().overlayShape[0][lx][ly] != 0) {
+                        shapedTiles[0]++;
+                    }
                     int rgb;
                     if (overlay == Biome.OVERLAY_WATER) {
                         // Water is already the biome colour underneath; painting it
@@ -137,6 +144,7 @@ public final class IslandPreview {
                 continue;
             }
             for (var object : entry.getValue()) {
+                typeCounts.merge(object.type, 1, Integer::sum);
                 if (object.plane != 0 || (object.type >= 12 && object.type <= 21)) {
                     continue;
                 }
@@ -248,6 +256,9 @@ public final class IslandPreview {
                         e.getKey(), e.getValue(), 100.0 * e.getValue() / (size * size)));
         System.out.println("\noverlay tiles (0 = none, painted over the biome):");
         overlayCounts.forEach((id, count) -> System.out.printf("  overlay %-4d %8d%n", id, count));
+        System.out.println("  partial (shaped) " + shapedTiles[0] + " of the above");
+        System.out.println("\nobjects by landscape type:");
+        typeCounts.forEach((type, count) -> System.out.printf("  type %-4d %8d%n", type, count));
         System.out.println("\nmarkers: cyan = start village, cream = settlement,");
         System.out.println("         red = dungeon with a boss, purple = boss-less dungeon");
         System.out.println("\nwrote " + out.getAbsolutePath());

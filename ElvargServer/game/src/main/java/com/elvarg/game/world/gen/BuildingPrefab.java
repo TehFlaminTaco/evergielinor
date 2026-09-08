@@ -66,6 +66,14 @@ public final class BuildingPrefab {
     /** Entrance tile in prefab-local coordinates, or -1 when no door was found. */
     public int doorX = -1;
     public int doorY = -1;
+    /**
+     * Tile a player stands on to use the door, just outside the footprint. A
+     * wall sits on an edge of its tile, so this is the tile across that edge -
+     * the end a lane has to reach for the path to arrive at the door rather than
+     * somewhere along the side of the house.
+     */
+    public int doorApproachX = -1;
+    public int doorApproachY = -1;
     /** Names of interactive facilities found inside, for matching to a town's needs. */
     public final List<String> facilities = new ArrayList<>();
 

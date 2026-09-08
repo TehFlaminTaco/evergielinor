@@ -49,7 +49,7 @@ public final class VerifyPalette {
         }
 
         long[] seeds = new long[Math.max(0, args.length - 1)];
-        for (int i = 1; i < args.length; i++) {
+        for (int i = 1; i < args.length && !args[i].equals("list"); i++) {
             seeds[i - 1] = Long.parseLong(args[i]);
         }
         if (seeds.length == 0) {
@@ -57,6 +57,17 @@ public final class VerifyPalette {
         }
 
         Floors floors = readFloors(cache);
+        if (args.length > 1 && args[1].equals("list")) {
+            // Listing mode: the whole palette, for picking ids by eye.
+            for (int i = 0; i < floors.underlayColours.size(); i++) {
+                System.out.printf("  underlay %-4d %s%n", i + 1, hex(floors.underlayColours.get(i)));
+            }
+            for (int i = 0; i < floors.overlayColours.size(); i++) {
+                System.out.printf("  overlay  %-4d %s%s%n", i + 1, hex(floors.overlayColours.get(i)),
+                        floors.overlayTextured.get(i) ? "  (textured)" : "");
+            }
+            return;
+        }
         List<Integer> underlays = floors.underlayColours;
         System.out.println("flo.dat underlay entries: " + underlays.size());
         System.out.println();
@@ -149,6 +160,10 @@ public final class VerifyPalette {
                 } else if (floors.overlayColours.get(index) == 0 && !floors.overlayTextured.get(index)) {
                     // A textured overlay draws its texture, so a black rgb there is
                     // not a fault; an untextured one really would be a black tile.
+                    // Magenta (0xff00ff) is not a fault either: the client reads it
+                    // as "shape this tile but draw no overlay colour", which is how
+                    // the original map shapes a tile and lets its underlay show. The
+                    // floor underneath is a real floor, so it is deliberate.
                     System.out.printf("  overlay  %-4d %,9d tiles   BLACK - renders as void%n",
                             entry.getKey(), entry.getValue());
                     failures++;
