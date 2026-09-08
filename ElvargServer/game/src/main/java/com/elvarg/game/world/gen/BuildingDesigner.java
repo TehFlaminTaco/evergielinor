@@ -55,6 +55,17 @@ public final class BuildingDesigner {
     private static final int ROT_EAST = 2;
     private static final int ROT_SOUTH = 3;
 
+    /** Landscape types a roof is built from: sloped panel, hip corner, flat apex. */
+    private static final int ROOF_SLOPE = 12;
+    private static final int ROOF_CORNER = 13;
+    private static final int ROOF_FLAT = 17;
+
+    /** Roof rotations, which run east, south, west, north rather than like walls. */
+    private static final int ROOF_EAST = 0;
+    private static final int ROOF_SOUTH = 1;
+    private static final int ROOF_WEST = 2;
+    private static final int ROOF_NORTH = 3;
+
     /** Object 2118 "Staircase", Climb-down; 2119 "Staircase", Climb-up. */
     private static final int STAIRCASE_UP = 2119;
     private static final int STAIRCASE_DOWN = 2118;
@@ -407,30 +418,44 @@ public final class BuildingDesigner {
     }
 
     /**
-     * Lays roof pieces over the footprint, one plane above the top storey.
+     * Lays a hipped roof over the footprint, one plane above the top storey.
      *
-     * Types 12 to 17 are the roof body; 18 to 21 are edge trim that reads as a
-     * fringe when tiled over a whole building, so a body piece is preferred.
+     * Tiling one piece over the whole building, which is what this did before,
+     * produces a field of identically angled slope panels - from above a dark
+     * slab sitting where the roof should be. The original map builds a roof out
+     * of three roles, and this copies that: type 12 sloped panels around the
+     * border facing outward, type 13 hip corners where two of those meet, and a
+     * type 17 flat apex over everything inside. The rotations are the ones the
+     * map itself uses, read off a real roof in Varrock: for the slopes east is 0,
+     * south 1, west 2 and north 3, and a hip corner takes the rotation of
+     * whichever of its two sides comes first in that order.
      */
     private static void roof(BuildingPrefab prefab, BuildingStyle style,
                              int width, int height, int plane) {
-        int[] piece = null;
-        for (int[] candidate : style.roofPieces) {
-            if (!ObjectVetting.rendersAt(candidate[0], candidate[1])) {
-                continue;
-            }
-            boolean body = candidate[1] >= 12 && candidate[1] <= 17;
-            if (piece == null || (body && !(piece[1] >= 12 && piece[1] <= 17))) {
-                piece = candidate;
-            }
-        }
-        if (piece == null) {
+        int id = style.roofBody();
+        if (id < 0) {
             return;
         }
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
-                prefab.objects.add(new BuildingPrefab.PrefabObject(
-                        piece[0], x, y, plane, piece[1], 0));
+                boolean west = x == 0;
+                boolean east = x == width - 1;
+                boolean south = y == 0;
+                boolean north = y == height - 1;
+                int type;
+                int rotation;
+                if ((south || north) && (west || east)) {
+                    type = ROOF_CORNER;
+                    rotation = south ? (east ? ROOF_EAST : ROOF_SOUTH)
+                                     : (west ? ROOF_WEST : ROOF_NORTH);
+                } else if (south || north || west || east) {
+                    type = ROOF_SLOPE;
+                    rotation = south ? ROOF_SOUTH : north ? ROOF_NORTH : west ? ROOF_WEST : ROOF_EAST;
+                } else {
+                    type = ROOF_FLAT;
+                    rotation = 0;
+                }
+                prefab.objects.add(new BuildingPrefab.PrefabObject(id, x, y, plane, type, rotation));
             }
         }
         prefab.planes = Math.max(prefab.planes, plane + 1);

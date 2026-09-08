@@ -45,6 +45,24 @@ public final class BuildingStyle {
         return wall > 0 && door > 0;
     }
 
+    /**
+     * A roof id able to build a whole hipped roof: it needs a sloped panel
+     * (type 12), a hip corner (13) and a flat apex (17). Most of the original
+     * map's roof objects carry all of 12 to 17 in one definition, so one id
+     * usually covers every role; a style whose pieces do not has no roof rather
+     * than a roof with invisible corners.
+     */
+    public int roofBody() {
+        for (int[] piece : roofPieces) {
+            if (ObjectVetting.rendersAt(piece[0], 12)
+                    && ObjectVetting.rendersAt(piece[0], 13)
+                    && ObjectVetting.rendersAt(piece[0], 17)) {
+                return piece[0];
+            }
+        }
+        return -1;
+    }
+
     public boolean hasRoof() {
         return !roofPieces.isEmpty();
     }

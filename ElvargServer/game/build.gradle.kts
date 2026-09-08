@@ -191,3 +191,19 @@ tasks.register<JavaExec>("extractBuildingParts") {
     classpath = sourceSets["main"].runtimeClasspath
     workingDir = projectDir
 }
+
+tasks.register<JavaExec>("inspectArea") {
+    group = "evergielinor"
+    description = "Prints the map data over a patch of world: -Px= -Py= [-Pr=radius] [-Pplane=]"
+    mainClass.set("com.elvarg.game.world.tool.InspectArea")
+    classpath = sourceSets["main"].runtimeClasspath
+    workingDir = projectDir
+    doFirst {
+        args = listOf(
+            project.findProperty("x")?.toString() ?: "3222",
+            project.findProperty("y")?.toString() ?: "3218",
+            project.findProperty("r")?.toString() ?: "12",
+            project.findProperty("plane")?.toString() ?: "0"
+        )
+    }
+}

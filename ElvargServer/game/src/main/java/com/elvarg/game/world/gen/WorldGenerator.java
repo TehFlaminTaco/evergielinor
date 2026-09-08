@@ -1052,13 +1052,13 @@ public final class WorldGenerator {
                         Biome biome = geography.biome[localX][localY];
                         int underlay = underlayOverride[localX][localY];
                         region.setUnderlay(0, x, y, underlay != 0 ? underlay : biome.underlay());
+                        // shapeOverlays folds the biome's own overlay into the
+                        // override grid, so this is the whole picture.
                         int override = overlayOverride[localX][localY];
                         if (override != 0) {
                             region.setOverlay(0, x, y, override,
                                     overlayShapeOverride[localX][localY],
                                     overlayRotationOverride[localX][localY]);
-                        } else if (biome.overlay() != 0) {
-                            region.setOverlay(0, x, y, biome.overlay(), 0, 0);
                         }
                         region.setHeight(0, x, y, geography.height[localX][localY]);
                         if (biome.isWater() || geography.cliff[localX][localY]) {
@@ -1123,59 +1123,87 @@ public final class WorldGenerator {
     }
 
     /**
-     * Gives every painted overlay a shape, so its edges are diagonals.
+     * Gives every overlay on the island a shape, so its edges are diagonals.
      *
-     * Written as full tiles, a road climbing a slope is a staircase of squares
-     * and a shoreline is a flight of steps - both of which read as tiling rather
-     * than as terrain. The landscape format carries a shape and rotation per
-     * overlay tile, and {@link OverlayShape} works out which pair covers a given
-     * set of tile corners.
+     * Written as full squares, a track climbing a slope is a staircase and a
+     * shoreline is a flight of steps. The landscape format carries a shape and
+     * rotation per overlay tile, and {@link OverlayShape} works out which pair
+     * covers a given set of tile corners.
      *
-     * Two rules do the work. A tile that has the overlay keeps a corner unless
-     * both of the neighbours meeting at that corner lack it, which bevels the
-     * outside of every bend. A tile that does not have the overlay gains the
-     * corner where two neighbours meeting at it both do, which fills the notch
-     * on the inside. Together they turn a staircase into a straight diagonal.
+     * The first attempt at this decided each tile from its own neighbours, which
+     * quietly deleted any tile whose neighbours were all diagonal - so a diagonal
+     * path lost every tile it was made of and left behind only the triangles that
+     * had been added to fill the gaps between them. This works on corners
+     * instead: a tile corner belongs to the overlay if any of the four tiles
+     * meeting there has it, and a tile is then shaped to whichever of its corners
+     * are in. That can never empty a tile that had the overlay, it widens a
+     * one-tile diagonal into a continuous band with clean 45 degree edges, and a
+     * straight boundary is left straight because both sides of it stay full.
+     *
+     * Overlays from the biome - water, lava - go through the same pass, so a
+     * coastline is bevelled the way a road is.
      */
     private void shapeOverlays() {
         int size = geography.size;
-        int[][] source = new int[size][];
+        int[][] base = new int[size][size];
+        java.util.SortedSet<Integer> ids = new java.util.TreeSet<>();
         for (int x = 0; x < size; x++) {
-            // Work from a snapshot: filling notches must not cascade, or one
-            // diagonal would flood the ground beside it.
-            source[x] = overlayOverride[x].clone();
+            for (int y = 0; y < size; y++) {
+                int id = overlayOverride[x][y] != 0
+                        ? overlayOverride[x][y] : geography.biome[x][y].overlay();
+                base[x][y] = id;
+                if (id != 0) {
+                    ids.add(id);
+                }
+            }
+        }
+
+        int[][] winningMask = new int[size][size];
+        // A corner grid is one larger than the tile grid in each direction: corner
+        // (cx, cy) is the south-west corner of tile (cx, cy).
+        boolean[][] corner = new boolean[size + 1][size + 1];
+        for (int id : ids) {
+            for (boolean[] row : corner) {
+                java.util.Arrays.fill(row, false);
+            }
+            for (int x = 0; x < size; x++) {
+                for (int y = 0; y < size; y++) {
+                    if (base[x][y] != id) {
+                        continue;
+                    }
+                    corner[x][y] = true;
+                    corner[x + 1][y] = true;
+                    corner[x][y + 1] = true;
+                    corner[x + 1][y + 1] = true;
+                }
+            }
+            for (int x = 0; x < size; x++) {
+                for (int y = 0; y < size; y++) {
+                    int mask = (corner[x][y] ? 1 : 0)
+                            | (corner[x + 1][y] ? 2 : 0)
+                            | (corner[x + 1][y + 1] ? 4 : 0)
+                            | (corner[x][y + 1] ? 8 : 0);
+                    // Where two overlays reach the same tile, the one covering
+                    // more of it wins; ids are visited in order so a tie is
+                    // settled the same way every run.
+                    if (mask != 0 && Integer.bitCount(mask) > Integer.bitCount(winningMask[x][y])) {
+                        winningMask[x][y] = mask;
+                        overlayOverride[x][y] = id;
+                    }
+                }
+            }
         }
 
         for (int x = 0; x < size; x++) {
             for (int y = 0; y < size; y++) {
-                int id = source[x][y];
-                int corners;
-                if (id != 0) {
-                    corners = keptCorners(source, x, y, id);
-                    if (corners == 0) {
-                        // A lone tile with nothing of its kind orthogonally next
-                        // to it is speckle, not a path.
-                        overlayOverride[x][y] = 0;
-                        continue;
-                    }
-                } else {
-                    id = notchFiller(source, x, y);
-                    if (id == 0 || !geography.isWalkable(x, y)) {
-                        continue;
-                    }
-                    corners = filledCorners(source, x, y, id);
-                    if (corners == 0) {
-                        continue;
-                    }
-                    overlayOverride[x][y] = id;
-                }
-                if (corners == 0xf) {
+                int mask = winningMask[x][y];
+                if (mask == 0 || mask == 0xf) {
                     continue;
                 }
-                int packed = OverlayShape.forCorners(corners);
+                int packed = OverlayShape.forCorners(mask);
                 if (packed < 0) {
-                    // Opposite corners only; no single tile shape covers that, so
-                    // the tile stays full rather than losing its overlay.
+                    // Opposite corners only, which no single tile shape covers.
+                    // The tile stays full rather than losing its overlay.
                     continue;
                 }
                 overlayShapeOverride[x][y] = OverlayShape.shapeOf(packed);
@@ -1183,58 +1211,6 @@ public final class WorldGenerator {
             }
         }
     }
-
-    /** Corners of a tile that keep their overlay: all but the outside of a bend. */
-    private int keptCorners(int[][] source, int x, int y, int id) {
-        int corners = 0;
-        for (int corner = 0; corner < 4; corner++) {
-            int dx = CORNER_X[corner];
-            int dy = CORNER_Y[corner];
-            if (matches(source, x + dx, y, id) || matches(source, x, y + dy, id)) {
-                corners |= 1 << corner;
-            }
-        }
-        return corners;
-    }
-
-    /** Corners a bare tile gains where two neighbours of one overlay meet on it. */
-    private int filledCorners(int[][] source, int x, int y, int id) {
-        int corners = 0;
-        for (int corner = 0; corner < 4; corner++) {
-            if (matches(source, x + CORNER_X[corner], y, id)
-                    && matches(source, x, y + CORNER_Y[corner], id)) {
-                corners |= 1 << corner;
-            }
-        }
-        return corners;
-    }
-
-    /** The overlay, if any, that meets on a corner of this bare tile. */
-    private int notchFiller(int[][] source, int x, int y) {
-        for (int corner = 0; corner < 4; corner++) {
-            int a = valueAt(source, x + CORNER_X[corner], y);
-            int b = valueAt(source, x, y + CORNER_Y[corner]);
-            if (a != 0 && a == b) {
-                return a;
-            }
-        }
-        return 0;
-    }
-
-    private boolean matches(int[][] source, int x, int y, int id) {
-        return valueAt(source, x, y) == id;
-    }
-
-    private int valueAt(int[][] source, int x, int y) {
-        return IslandLayout.inBounds(x, y) ? source[x][y] : 0;
-    }
-
-    /**
-     * Corner directions in the order {@link OverlayShape} indexes them:
-     * south-west, south-east, north-east, north-west.
-     */
-    private static final int[] CORNER_X = {-1, 1, 1, -1};
-    private static final int[] CORNER_Y = {-1, -1, 1, 1};
 
     /**
      * Applies building floors and paving over the biome pass.
